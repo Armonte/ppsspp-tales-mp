@@ -87,6 +87,7 @@ void SetFocusedView(View *view, bool force) {
 }
 
 void EnableFocusMovement(bool enable) {
+	// INFO_LOG(Log::UI, "EnableFocusMovement: %s", enable ? "true" : "false");
 	focusMovementEnabled = enable;
 	if (!enable) {
 		if (focusedView) {

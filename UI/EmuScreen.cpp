@@ -122,7 +122,7 @@ static void AssertCancelCallback(const char *message, void *userdata) {
 
 // Handles control rotation due to internal screen rotation.
 void EmuScreen::UpdatePSPButtons(uint32_t bitsToSet, uint32_t bitsToClear) {
-	if (!isOnTop_) {
+	if (!IsOnTop()) {
 		// Auto-release inputs
 		bitsToSet = 0;
 	}
@@ -130,7 +130,7 @@ void EmuScreen::UpdatePSPButtons(uint32_t bitsToSet, uint32_t bitsToClear) {
 }
 
 void EmuScreen::SetPSPAnalog(int iInternalScreenRotation, int stick, float x, float y) {
-	if (!isOnTop_) {
+	if (!IsOnTop()) {
 		x = 0.0f;
 		y = 0.0f;
 	}
@@ -513,9 +513,7 @@ void EmuScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 	}
 
 	// Returning to the PauseScreen, unless we're stepping, means we should go back to controls.
-	if (Core_IsActive()) {
-		UI::EnableFocusMovement(false);
-	}
+	UI::EnableFocusMovement(false);
 
 	// TODO: improve the way with which we got commands from PauseMenu.
 	// DR_CANCEL/DR_BACK means clicked on "continue", DR_OK means clicked on "back to menu",
@@ -550,11 +548,9 @@ void EmuScreen::focusChanged(ScreenFocusChange focusChange) {
 	switch (focusChange) {
 	case ScreenFocusChange::FOCUS_LOST_TOP:
 		g_Config.TimeTracker().Stop(gameID);
-		isOnTop_ = false;
 		break;
 	case ScreenFocusChange::FOCUS_BECAME_TOP:
 		g_Config.TimeTracker().Start(gameID);
-		isOnTop_ = true;
 		break;
 	}
 }
@@ -753,7 +749,7 @@ static void ShowFpsLimitNotice() {
 
 // NOTE: This is unsynchronized! We should have as little as possible in here.
 void EmuScreen::OnVKey(VirtKey virtualKeyCode, bool down) {
-	if (!isOnTop_)
+	if (!IsOnTop())
 		return;
 
 	auto sc = GetI18NCategory(I18NCat::SCREEN);
@@ -1088,7 +1084,7 @@ void EmuScreen::ProcessVKey(VirtKey virtKey) {
 }
 
 void EmuScreen::OnVKeyAnalog(VirtKey virtualKeyCode, float value) {
-	if (!isOnTop_)
+	if (!IsOnTop())
 		return;
 
 	if (virtualKeyCode != VIRTKEY_SPEED_ANALOG) {
