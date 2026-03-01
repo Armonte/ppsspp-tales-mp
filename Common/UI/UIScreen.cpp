@@ -264,6 +264,10 @@ void UIDialogScreen::sendMessage(UIMessage message, const char *value) {
 	}
 }
 
+bool UIScreen::IsOnTop() const {
+	return screenManager()->topScreen() == this;
+}
+
 void UIScreen::OnBack(UI::EventParams &e) {
 	TriggerFinish(DR_BACK);
 }

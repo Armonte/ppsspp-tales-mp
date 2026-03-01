@@ -64,6 +64,7 @@ protected:
 
 	void RecreateViews() override { recreateViews_ = true; }
 	DeviceOrientation GetDeviceOrientation() const;
+	bool IsOnTop() const;
 
 	UI::ViewGroup *root_ = nullptr;
 	Vec3 translation_ = Vec3(0.0f);
