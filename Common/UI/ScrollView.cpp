@@ -146,6 +146,11 @@ const float friction = 0.92f;
 const float stop_threshold = 0.1f;
 
 bool ScrollView::Touch(const TouchInput &input) {
+	if (input.flags & TouchInputFlags::MOUSE) {
+		// Kinda hacky, we should make a proper hover mechanism.
+		mouseHover_ = bounds_.Contains(input.x, input.y);
+	}
+
 	// Ignore buttons other than the left one.
 	if ((input.flags & TouchInputFlags::MOUSE) && (input.buttons & 1) == 0) {
 		return false;
@@ -175,11 +180,6 @@ bool ScrollView::Touch(const TouchInput &input) {
 		}
 		scrollTouchId_ = -1;
 		draggingBob_ = false;
-	}
-
-	if (input.flags & TouchInputFlags::MOUSE) {
-		// Kinda hacky, we should make a proper hover mechanism.
-		mouseHover_ = bounds_.Contains(input.x, input.y);
 	}
 
 	// We modify the input2 we send to children, so we can cancel drags if we start scrolling, and stuff like that.
