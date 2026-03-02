@@ -63,7 +63,7 @@ namespace
 
 	bool ReadPSPFile(const std::string &filename, u8 **data, s64 dataSize, s64 *readSize)
 	{
-		int handle = pspFileSystem.OpenFile(filename, FILEACCESS_READ);
+		int handle = pspFileSystem.OpenFile(filename, (FileAccess)((int)FILEACCESS_READ | (int)FILEACCESS_PPSSPP_QUIET));
 		if (handle < 0)
 			return false;
 

@@ -80,11 +80,11 @@ What's new in 1.20
     - Assorted improvements ([#20778], [#20774])
   - Android
     - The minimum Android version has been raised for technical reasons, KitKat is no longer supported ([#19658])
+    - Support for Android devices with 16KB page size. This is a technical change, required by Google Play, that unfortunately forced us to drop compatibility with the very oldest devices (Android < 5). ([#20788])
     - Shortcut widgets can now be created even if the app isn't running ([#20798])
-    - Support for Android devices with 16K page size. This is a technical change, required by Google Play, that unfortunately forced us to drop compatibility with the very oldest devices. ([#20788])
     - Removed support for classic Moga controllers, these were only a thing on early Android ([#20762])
   - iOS
-    - Support for portrait screen rotation (wasn't available previously).
+    - Add support for screen rotation
   - Linux
     - Loongarch improvements by KatyushaScarlet ([#20683], [#20644], [#20599], [#20594]), text rendering improvements ([#21163])
     - SDL fullscreen problems fixed ([#21300], more)
