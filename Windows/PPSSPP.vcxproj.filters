@@ -842,6 +842,9 @@
     <None Include="..\assets\redump.csv">
       <Filter>assets</Filter>
     </None>
+    <None Include="..\assets\shaders\defaultshaders.ini">
+      <Filter>assets</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="ppsspp.rc">

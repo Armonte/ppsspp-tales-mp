@@ -23,6 +23,7 @@
 #include "GPU/Common/TextureCacheCommon.h"
 #include "GPU/Common/TextureShaderCommon.h"
 #include "GPU/Vulkan/VulkanUtil.h"
+#include "GPU/Vulkan/VulkanMemory.h"
 
 struct VirtualFramebuffer;
 struct TextureShaderInfo;
@@ -146,8 +147,7 @@ private:
 	VkSampler curSampler_ = VK_NULL_HANDLE;
 
 	VkSampler samplerNearest_ = VK_NULL_HANDLE;
-
-	VulkanBuffer textureSceleCBuffer_;
+	VulkanBuffer textureScaleCBuffer_;
 };
 
 VkFormat getClutDestFormatVulkan(GEPaletteFormat format);

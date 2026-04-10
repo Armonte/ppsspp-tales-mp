@@ -2,7 +2,7 @@
 
 #extension GL_EXT_scalar_block_layout : enable
 
-layout(scalar, set = 0, binding = 3) uniform PixelData {
+layout(scalar, set = CBUFFER_SET, binding = CBUFFER_BINDING) uniform PixelData {
     uint pixels[256];
 };
 

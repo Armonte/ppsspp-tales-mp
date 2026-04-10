@@ -77,6 +77,8 @@ layout(push_constant) uniform Params {
 	int height;
 } params;
 
+// The cbuffer, if present, is self-declared for layout flexibility
+#define CBUFFER_SET 0
 #define CBUFFER_BINDING 4
 
 uint readColoru(uvec2 p) {
@@ -299,7 +301,7 @@ void TextureCacheVulkan::ClearScalingShaders(VulkanContext *vulkan) {
 	multipassScratchDescs_.clear();
 	multipassStageDescs_.clear();
 	textureScalePipeline_ = TextureScalePipelineType::NONE;
-	textureSceleCBuffer_.Destroy(vulkan);
+	textureScaleCBuffer_.Destroy(vulkan);
 }
 
 bool TextureCacheVulkan::CompileMultipassShader(VulkanContext *vulkan, const TextureShaderInfo &shaderInfo, std::string *error) {
@@ -385,8 +387,9 @@ void TextureCacheVulkan::CompileScalingShader(VkCommandBuffer cmdInit) {
 		return;
 	}
 
-	if (!g_Config.bTexHardwareScaling)
+	if (!g_Config.bTexHardwareScaling) {
 		return;
+	}
 
 	ReloadAllPostShaderInfo(draw_);
 	const TextureShaderInfo *shaderInfo = GetTextureShaderInfo(g_Config.sTextureShaderName);
@@ -409,14 +412,14 @@ void TextureCacheVulkan::CompileScalingShader(VkCommandBuffer cmdInit) {
 	}
 
 	if (!shaderInfo->constantBuffer.empty()) {
-		textureSceleCBuffer_.Create(vulkan, "TextureScale CBuffer", shaderInfo->constantBuffer.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+		textureScaleCBuffer_.Create(vulkan, "TextureScale CBuffer", shaderInfo->constantBuffer.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 		VulkanPushPool *pushPool = drawEngine_->GetPushBufferForTextureData();
 		VkBuffer srcBuf;
 		VkDeviceSize offset = pushPool->Push(shaderInfo->constantBuffer.data(), shaderInfo->constantBuffer.size(), vulkan->GetPhysicalDeviceProperties().properties.limits.minUniformBufferOffsetAlignment, &srcBuf);
 		VkBufferCopy copyRegion{offset, 0, shaderInfo->constantBuffer.size()};
-		vkCmdCopyBuffer(cmdInit, srcBuf, textureSceleCBuffer_.Buffer(), 1, &copyRegion);
+		vkCmdCopyBuffer(cmdInit, srcBuf, textureScaleCBuffer_.Buffer(), 1, &copyRegion);
 		VulkanBarrierBatch barrier;
-		barrier.TransitionBufferToShaderRead(textureSceleCBuffer_.Buffer(), 0, shaderInfo->constantBuffer.size());
+		barrier.TransitionBufferToShaderRead(textureScaleCBuffer_.Buffer(), 0, shaderInfo->constantBuffer.size());
 		barrier.Flush(cmdInit);
 	}
 
@@ -497,7 +500,7 @@ bool TextureCacheVulkan::RunMultipassCompute(VulkanContext *vulkan, VkCommandBuf
 			stage.useFinalOutputSize ? dstWidth : srcWidth * stage.dstWidthScale,
 			stage.useFinalOutputSize ? dstHeight : srcHeight * stage.dstHeightScale,
 		};
-		VkDescriptorSet stageSet = computeShaderManager_.GetDescriptorSet(outputView, inputBuffer, inputOffset, inputRange, VK_NULL_HANDLE, 0, 0, inputImage);
+		VkDescriptorSet stageSet = computeShaderManager_.GetDescriptorSet(outputView, inputBuffer, inputOffset, inputRange, VK_NULL_HANDLE, 0, 0, inputImage, textureScaleCBuffer_.Buffer(), textureScaleCBuffer_.Size());
 		vkCmdBindPipeline(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipeline(multipassCS_[stage.shaderIndex]));
 		vkCmdBindDescriptorSets(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipelineLayout(), 0, 1, &stageSet, 0, nullptr);
 		vkCmdPushConstants(cmdInit, computeShaderManager_.GetPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(params), &params);
@@ -521,7 +524,7 @@ bool TextureCacheVulkan::ScaleBufferToImage(VkCommandBuffer cmdInit, VkImageView
 		if (singlePassCS_ == VK_NULL_HANDLE) {
 			return false;
 		}
-		VkDescriptorSet descSet = computeShaderManager_.GetDescriptorSet(dstView, texBuf, bufferOffset, srcSize);
+		VkDescriptorSet descSet = computeShaderManager_.GetDescriptorSet(dstView, texBuf, bufferOffset, srcSize, VK_NULL_HANDLE, 0, 0, VK_NULL_HANDLE, textureScaleCBuffer_.Buffer(), textureScaleCBuffer_.Size());
 		struct Params { int x; int y; } params{ srcWidth, srcHeight };
 		vkCmdBindPipeline(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipeline(singlePassCS_));
 		vkCmdBindDescriptorSets(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipelineLayout(), 0, 1, &descSet, 0, nullptr);

@@ -182,6 +182,12 @@ void VulkanBuffer::Create(VulkanContext *vulkan, const char *name, VkDeviceSize 
 		Destroy(vulkan);
 	}
 
+	size_ = size;
+
+	if (size == 0) {
+		return;
+	}
+
 	VkBufferCreateInfo b{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
 	b.size = size;
 	b.usage = usage;

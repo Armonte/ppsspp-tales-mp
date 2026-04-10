@@ -104,8 +104,10 @@ public:
 	void Destroy(VulkanContext *vulkan);
 
 	VkBuffer Buffer() const { return buffer_; }
+	VkDeviceSize Size() const { return size_; }
 
 private:
-	VkBuffer buffer_;
-	VmaAllocation allocation_;
+	VkBuffer buffer_ = VK_NULL_HANDLE;
+	VmaAllocation allocation_ = VK_NULL_HANDLE;
+	VkDeviceSize size_ = 0;  // convenience
 };
