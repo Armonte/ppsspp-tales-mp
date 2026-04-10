@@ -121,7 +121,7 @@ private:
 
 	void BuildTexture(TexCacheEntry *const entry) override;
 
-	void CompileScalingShader();
+	void CompileScalingShader(VkCommandBuffer cmdInit);
 	bool CompileMultipassShader(VulkanContext *vulkan, const TextureShaderInfo &shaderInfo, std::string *error);
 	void ClearScalingShaders(VulkanContext *vulkan);
 	bool HasScalingShader() const;
@@ -146,6 +146,8 @@ private:
 	VkSampler curSampler_ = VK_NULL_HANDLE;
 
 	VkSampler samplerNearest_ = VK_NULL_HANDLE;
+
+	VulkanBuffer textureSceleCBuffer_;
 };
 
 VkFormat getClutDestFormatVulkan(GEPaletteFormat format);

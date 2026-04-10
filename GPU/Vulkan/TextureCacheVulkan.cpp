@@ -62,7 +62,8 @@ const char *uploadShader = R"(
 #extension GL_ARB_separate_shader_objects : enable
 
 // 8x8 is the most common compute shader workgroup size, and works great on all major
-// hardware vendors.
+// hardware vendors. TODO: However, we should probably change to 16x16, as Qualcomm now has
+// support for bigger groups...
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 uniform layout(set = 0, binding = 0, rgba8) writeonly image2D img;
@@ -75,6 +76,8 @@ layout(push_constant) uniform Params {
 	int width;
 	int height;
 } params;
+
+#define CBUFFER_BINDING 4
 
 uint readColoru(uvec2 p) {
 	return buf.data[p.y * params.width + p.x];
@@ -251,14 +254,16 @@ void TextureCacheVulkan::DeviceRestore(Draw::DrawContext *draw) {
 	VkResult res = vkCreateSampler(vulkan->GetDevice(), &samp, nullptr, &samplerNearest_);
 	_assert_(res == VK_SUCCESS);
 
-	CompileScalingShader();
+	VkCommandBuffer cmdInit = (VkCommandBuffer)draw_->GetNativeObject(Draw::NativeObject::INIT_COMMANDBUFFER);
+	CompileScalingShader(cmdInit);
 
 	computeShaderManager_.DeviceRestore(draw);
 }
 
 void TextureCacheVulkan::NotifyConfigChanged() {
 	TextureCacheCommon::NotifyConfigChanged();
-	CompileScalingShader();
+	VkCommandBuffer cmdInit = (VkCommandBuffer)draw_->GetNativeObject(Draw::NativeObject::INIT_COMMANDBUFFER);
+	CompileScalingShader(cmdInit);
 }
 
 static std::string ReadShaderSrc(const Path &filename) {
@@ -294,6 +299,7 @@ void TextureCacheVulkan::ClearScalingShaders(VulkanContext *vulkan) {
 	multipassScratchDescs_.clear();
 	multipassStageDescs_.clear();
 	textureScalePipeline_ = TextureScalePipelineType::NONE;
+	textureSceleCBuffer_.Destroy(vulkan);
 }
 
 bool TextureCacheVulkan::CompileMultipassShader(VulkanContext *vulkan, const TextureShaderInfo &shaderInfo, std::string *error) {
@@ -356,7 +362,7 @@ bool TextureCacheVulkan::CompileMultipassShader(VulkanContext *vulkan, const Tex
 	return true;
 }
 
-void TextureCacheVulkan::CompileScalingShader() {
+void TextureCacheVulkan::CompileScalingShader(VkCommandBuffer cmdInit) {
 	if (!draw_) {
 		// Something is very wrong.
 		return;
@@ -400,6 +406,18 @@ void TextureCacheVulkan::CompileScalingShader() {
 		if (singlePassCS_ == VK_NULL_HANDLE)
 			return;
 		textureScalePipeline_ = TextureScalePipelineType::SINGLE_PASS;
+	}
+
+	if (!shaderInfo->constantBuffer.empty()) {
+		textureSceleCBuffer_.Create(vulkan, "TextureScale CBuffer", shaderInfo->constantBuffer.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+		VulkanPushPool *pushPool = drawEngine_->GetPushBufferForTextureData();
+		VkBuffer srcBuf;
+		VkDeviceSize offset = pushPool->Push(shaderInfo->constantBuffer.data(), shaderInfo->constantBuffer.size(), vulkan->GetPhysicalDeviceProperties().properties.limits.minUniformBufferOffsetAlignment, &srcBuf);
+		VkBufferCopy copyRegion{offset, 0, shaderInfo->constantBuffer.size()};
+		vkCmdCopyBuffer(cmdInit, srcBuf, textureSceleCBuffer_.Buffer(), 1, &copyRegion);
+		VulkanBarrierBatch barrier;
+		barrier.TransitionBufferToShaderRead(textureSceleCBuffer_.Buffer(), 0, shaderInfo->constantBuffer.size());
+		barrier.Flush(cmdInit);
 	}
 
 	textureShader_ = g_Config.sTextureShaderName;

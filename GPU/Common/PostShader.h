@@ -90,6 +90,9 @@ struct TextureShaderInfo {
 	// Upscaling shaders have a fixed scale factor.
 	int scaleFactor;
 
+	// Some shaders need to pass some data to the shader, and this is the buffer for that. It's up to the shader to interpret it.
+	std::vector<u8> constantBuffer;
+
 	bool operator == (const std::string &other) const {
 		return name == other;
 	}
