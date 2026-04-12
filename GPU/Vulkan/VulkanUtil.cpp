@@ -132,7 +132,8 @@ void VulkanComputeShaderManager::InitDeviceObjects(Draw::DrawContext *draw) {
 	bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 	bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 	bindings[3].binding = 3;
-	bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;	
+	bindings[4].descriptorCount = 1;
+	bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 	bindings[4].binding = 4;
 

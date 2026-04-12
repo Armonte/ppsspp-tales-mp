@@ -127,7 +127,9 @@ private:
 	void ClearScalingShaders(VulkanContext *vulkan);
 	bool HasScalingShader() const;
 	bool RunMultipassCompute(VulkanContext *vulkan, VkCommandBuffer cmdInit, VkImageView dstView, VkBuffer texBuf, uint32_t bufferOffset, int srcSize, int srcWidth, int srcHeight, int dstWidth, int dstHeight);
-	bool ScaleBufferToImage(VkCommandBuffer cmdInit, VkImageView dstView, VkBuffer texBuf, uint32_t bufferOffset, int srcSize, int srcWidth, int srcHeight, int dstWidth, int dstHeight);
+	bool ScaleBufferToImage(VulkanContext *vulkan, VkCommandBuffer cmdInit, VkImageView dstView, VkBuffer texBuf, uint32_t bufferOffset, int srcSize, int srcWidth, int srcHeight, int dstWidth, int dstHeight);
+
+	void LoadConstantBuffer(VulkanContext *vulkan, VkCommandBuffer cmdInit);
 
 	VulkanComputeShaderManager computeShaderManager_;
 
@@ -147,7 +149,11 @@ private:
 	VkSampler curSampler_ = VK_NULL_HANDLE;
 
 	VkSampler samplerNearest_ = VK_NULL_HANDLE;
+
+	Path cbufferPath_;
 	VulkanBuffer textureScaleCBuffer_;
+	bool cbufferInited_ = true;
+	bool cbufferFailed_ = false;
 };
 
 VkFormat getClutDestFormatVulkan(GEPaletteFormat format);

@@ -212,19 +212,12 @@ void LoadPostShaderInfo(Draw::DrawContext *draw, const std::vector<Path> &direct
 					info.scaleFactor = 0;
 					section.Get("Name", &info.name);
 					section.Get("Scale", &info.scaleFactor);
+					bool hidden = false;
+					section.Get("Hidden", &info.hidden);
 					std::string cbufferFilename;
 					if (section.Get("ConstantBuffer", &cbufferFilename)) {
 						Path cbufferPath = path / cbufferFilename;
-						std::string temp;
-						size_t constantsSize;
-						uint8_t *contents = g_VFS.ReadFile(cbufferPath.c_str(), &constantsSize);
-						if (contents) {
-							info.constantBuffer.assign(contents, contents + constantsSize);
-							delete[] contents;
-						} else {
-							ERROR_LOG(Log::G3D, "Failed to read constant buffer file '%s' for texture shader '%s'", cbufferPath.c_str(), info.name.c_str());
-							continue;
-						}
+						info.constantBuffer = cbufferPath;
 					}
 					if (section.Get("Compute", &temp)) {
 						info.computeShaderFile = path / temp;

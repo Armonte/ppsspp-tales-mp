@@ -91,7 +91,8 @@ struct TextureShaderInfo {
 	int scaleFactor;
 
 	// Some shaders need to pass some data to the shader, and this is the buffer for that. It's up to the shader to interpret it.
-	std::vector<u8> constantBuffer;
+	Path constantBuffer;
+	bool hidden = false;
 
 	bool operator == (const std::string &other) const {
 		return name == other;

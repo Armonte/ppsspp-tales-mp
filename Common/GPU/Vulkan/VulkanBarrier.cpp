@@ -58,6 +58,9 @@ void VulkanBarrierBatch::TransitionImage(
 }
 
 void VulkanBarrierBatch::TransitionBufferToShaderRead(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
+
+	srcStageMask_ |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+	dstStageMask_ |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	VkBufferMemoryBarrier &bufferBarrier = bufferBarriers_.push_uninitialized();
 	bufferBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
 	bufferBarrier.pNext = nullptr;
