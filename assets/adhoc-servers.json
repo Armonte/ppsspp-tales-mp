@@ -9,7 +9,7 @@
 			"description": "For players looking to play any games",
 			"data_mode": "AemuPostoffice",
 			"status_xml": "https://www.socom.cc/status.xml",
-			"icon":  "/favicon.ico"
+			"icon": "/favicon.ico"
 		},
 		{
 			"name": "Madness Gaming Network",
@@ -146,6 +146,16 @@
 			"description": "For players looking to play any games mainly TEKKEN",
 			"data_mode": "AemuPostoffice",
 			"status_data_json": "http://38.54.80.95:27315/data.json"
+		},
+		{
+			"name": "Neko PSP",
+			"host": "cat.wjg.jp",
+			"discord": "https://discord.gg/8AgMCDgRQy",
+			"web": "https://cat.wjg.jp",
+			"location": "Japan",
+			"description": "For players looking to play any games",
+			"data_mode": "AemuPostoffice",
+			"status_data_json": "https://cat.wjg.jp/data.json"
 		}
 	]
 }
