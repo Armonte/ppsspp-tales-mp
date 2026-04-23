@@ -370,6 +370,9 @@ if (eq(E,A)) {
 		return mixXEoff;
 	}
 
+	// xxx.alpha
+	if (vE.a<0.002 && !Xisblack) return vX;
+
     eq_B_PC = eq(B,PC);
     eq_B_PA = eq(B,PA);
     eq_D_QG = eq(D,QG);
