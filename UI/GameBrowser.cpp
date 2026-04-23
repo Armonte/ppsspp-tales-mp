@@ -243,7 +243,18 @@ void GameButton::Draw(UIContext &dc) {
 			texture = ginfo->icon.texture;
 		} else if (drawBackground) {
 			// No icon, but drawBackground is set. Let's show a plain icon depending on type.
-			imageIcon = (ginfo->fileType == IdentifiedFileType::PSP_ISO || ginfo->fileType == IdentifiedFileType::PSP_ISO_NP) ? ImageID("I_UMD") : ImageID("I_APP");
+			if (ginfo->fileType == IdentifiedFileType::PSP_ISO || ginfo->fileType == IdentifiedFileType::PSP_ISO_NP) {
+				imageIcon = ImageID("I_UMD");
+			} else if (gamePath_.Type() == PathType::HTTP) {
+				imageIcon = ginfo->fileType == IdentifiedFileType::UNKNOWN ? ImageID("I_LINK_OUT_QUESTION") : ImageID("I_LINK_OUT");
+			} else {
+				imageIcon = ImageID("I_APP");
+			}
+		}
+	} else {
+		// Make sure that pending HTTP icons show something, instead of just blank.
+		if (gamePath_.Type() == PathType::HTTP) {
+			imageIcon = ImageID("I_LINK_OUT_QUESTION");
 		}
 	}
 
