@@ -62,7 +62,8 @@ const char *uploadShader = R"(
 #extension GL_ARB_separate_shader_objects : enable
 
 // 8x8 is the most common compute shader workgroup size, and works great on all major
-// hardware vendors.
+// hardware vendors. TODO: However, we should probably change to 16x16, as Qualcomm now has
+// support for bigger groups...
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 uniform layout(set = 0, binding = 0, rgba8) writeonly image2D img;
@@ -75,6 +76,10 @@ layout(push_constant) uniform Params {
 	int width;
 	int height;
 } params;
+
+// The cbuffer, if present, is self-declared for layout flexibility
+#define CBUFFER_SET 0
+#define CBUFFER_BINDING 4
 
 uint readColoru(uvec2 p) {
 	return buf.data[p.y * params.width + p.x];
@@ -251,14 +256,16 @@ void TextureCacheVulkan::DeviceRestore(Draw::DrawContext *draw) {
 	VkResult res = vkCreateSampler(vulkan->GetDevice(), &samp, nullptr, &samplerNearest_);
 	_assert_(res == VK_SUCCESS);
 
-	CompileScalingShader();
+	VkCommandBuffer cmdInit = (VkCommandBuffer)draw_->GetNativeObject(Draw::NativeObject::INIT_COMMANDBUFFER);
+	CompileScalingShader(cmdInit);
 
 	computeShaderManager_.DeviceRestore(draw);
 }
 
 void TextureCacheVulkan::NotifyConfigChanged() {
 	TextureCacheCommon::NotifyConfigChanged();
-	CompileScalingShader();
+	VkCommandBuffer cmdInit = (VkCommandBuffer)draw_->GetNativeObject(Draw::NativeObject::INIT_COMMANDBUFFER);
+	CompileScalingShader(cmdInit);
 }
 
 static std::string ReadShaderSrc(const Path &filename) {
@@ -294,6 +301,7 @@ void TextureCacheVulkan::ClearScalingShaders(VulkanContext *vulkan) {
 	multipassScratchDescs_.clear();
 	multipassStageDescs_.clear();
 	textureScalePipeline_ = TextureScalePipelineType::NONE;
+	textureScaleCBuffer_.Destroy(vulkan);
 }
 
 bool TextureCacheVulkan::CompileMultipassShader(VulkanContext *vulkan, const TextureShaderInfo &shaderInfo, std::string *error) {
@@ -356,7 +364,7 @@ bool TextureCacheVulkan::CompileMultipassShader(VulkanContext *vulkan, const Tex
 	return true;
 }
 
-void TextureCacheVulkan::CompileScalingShader() {
+void TextureCacheVulkan::CompileScalingShader(VkCommandBuffer cmdInit) {
 	if (!draw_) {
 		// Something is very wrong.
 		return;
@@ -379,8 +387,9 @@ void TextureCacheVulkan::CompileScalingShader() {
 		return;
 	}
 
-	if (!g_Config.bTexHardwareScaling)
+	if (!g_Config.bTexHardwareScaling) {
 		return;
+	}
 
 	ReloadAllPostShaderInfo(draw_);
 	const TextureShaderInfo *shaderInfo = GetTextureShaderInfo(g_Config.sTextureShaderName);
@@ -402,6 +411,10 @@ void TextureCacheVulkan::CompileScalingShader() {
 		textureScalePipeline_ = TextureScalePipelineType::SINGLE_PASS;
 	}
 
+	// if it's empty, we're already done. otherwise we need to load it on first use.
+	cbufferInited_ = shaderInfo->constantBuffer.empty();
+	cbufferPath_ = shaderInfo->constantBuffer;
+
 	textureShader_ = g_Config.sTextureShaderName;
 	shaderScaleFactor_ = shaderInfo->scaleFactor;
 }
@@ -421,12 +434,43 @@ static void BarrierComputeImage(VkCommandBuffer cmd, VkImage image) {
 	batch.Flush(cmd);
 }
 
+void TextureCacheVulkan::LoadConstantBuffer(VulkanContext *vulkan, VkCommandBuffer cmdInit) {
+	if (cbufferInited_) {
+		return;
+	}
+
+	_dbg_assert_(!cbufferPath_.empty());
+
+	std::string temp;
+	size_t constantsSize;
+	uint8_t *contents = g_VFS.ReadFile(cbufferPath_.c_str(), &constantsSize);
+	if (!contents) {
+		ERROR_LOG(Log::G3D, "Failed to read constant buffer file '%s'", cbufferPath_.c_str());
+		return;
+	}
+	textureScaleCBuffer_.Create(vulkan, "TextureScale CBuffer", constantsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+	VulkanPushPool *pushPool = drawEngine_->GetPushBufferForTextureData();
+	VkBuffer srcBuf = VK_NULL_HANDLE;
+	VkDeviceSize offset = pushPool->Push(contents, constantsSize, vulkan->GetPhysicalDeviceProperties().properties.limits.minUniformBufferOffsetAlignment, &srcBuf);
+	VkBufferCopy copyRegion{offset, 0, constantsSize};
+	vkCmdCopyBuffer(cmdInit, srcBuf, textureScaleCBuffer_.Buffer(), 1, &copyRegion);
+	VulkanBarrierBatch barrier;
+	barrier.TransitionBufferToShaderRead(textureScaleCBuffer_.Buffer(), 0, constantsSize);
+	barrier.Flush(cmdInit);
+
+	delete[] contents;
+
+	cbufferInited_ = true;
+}
+
 bool TextureCacheVulkan::RunMultipassCompute(VulkanContext *vulkan, VkCommandBuffer cmdInit, VkImageView dstView, VkBuffer texBuf, uint32_t bufferOffset, int srcSize, int srcWidth, int srcHeight, int dstWidth, int dstHeight) {
 	const bool fourX = dstWidth > srcWidth * 2 || dstHeight > srcHeight * 2;
 	VulkanBarrierBatch barrier;
 	const VkImageUsageFlags scratchUsage = VK_IMAGE_USAGE_STORAGE_BIT;
 	std::vector<std::unique_ptr<VulkanTexture>> scratchTextures;
 	scratchTextures.reserve(multipassScratchDescs_.size());
+
+	LoadConstantBuffer(vulkan, cmdInit);
 
 	for (const MultipassScratchDesc &scratchDesc : multipassScratchDescs_) {
 		auto scratch = std::make_unique<VulkanTexture>(vulkan, scratchDesc.tag);
@@ -479,7 +523,7 @@ bool TextureCacheVulkan::RunMultipassCompute(VulkanContext *vulkan, VkCommandBuf
 			stage.useFinalOutputSize ? dstWidth : srcWidth * stage.dstWidthScale,
 			stage.useFinalOutputSize ? dstHeight : srcHeight * stage.dstHeightScale,
 		};
-		VkDescriptorSet stageSet = computeShaderManager_.GetDescriptorSet(outputView, inputBuffer, inputOffset, inputRange, VK_NULL_HANDLE, 0, 0, inputImage);
+		VkDescriptorSet stageSet = computeShaderManager_.GetDescriptorSet(outputView, inputBuffer, inputOffset, inputRange, VK_NULL_HANDLE, 0, 0, inputImage, textureScaleCBuffer_.Buffer(), textureScaleCBuffer_.Size());
 		vkCmdBindPipeline(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipeline(multipassCS_[stage.shaderIndex]));
 		vkCmdBindDescriptorSets(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipelineLayout(), 0, 1, &stageSet, 0, nullptr);
 		vkCmdPushConstants(cmdInit, computeShaderManager_.GetPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(params), &params);
@@ -492,18 +536,19 @@ bool TextureCacheVulkan::RunMultipassCompute(VulkanContext *vulkan, VkCommandBuf
 	return true;
 }
 
-bool TextureCacheVulkan::ScaleBufferToImage(VkCommandBuffer cmdInit, VkImageView dstView, VkBuffer texBuf, uint32_t bufferOffset, int srcSize, int srcWidth, int srcHeight, int dstWidth, int dstHeight) {
+bool TextureCacheVulkan::ScaleBufferToImage(VulkanContext *vulkan, VkCommandBuffer cmdInit, VkImageView dstView, VkBuffer texBuf, uint32_t bufferOffset, int srcSize, int srcWidth, int srcHeight, int dstWidth, int dstHeight) {
 	if (!draw_ || cmdInit == VK_NULL_HANDLE || dstView == VK_NULL_HANDLE) {
 		return false;
 	}
 
-	VulkanContext *vulkan = (VulkanContext *)draw_->GetNativeObject(Draw::NativeObject::CONTEXT);
+	LoadConstantBuffer(vulkan, cmdInit);
+
 	switch (textureScalePipeline_) {
 	case TextureScalePipelineType::SINGLE_PASS: {
 		if (singlePassCS_ == VK_NULL_HANDLE) {
 			return false;
 		}
-		VkDescriptorSet descSet = computeShaderManager_.GetDescriptorSet(dstView, texBuf, bufferOffset, srcSize);
+		VkDescriptorSet descSet = computeShaderManager_.GetDescriptorSet(dstView, texBuf, bufferOffset, srcSize, VK_NULL_HANDLE, 0, 0, VK_NULL_HANDLE, textureScaleCBuffer_.Buffer(), textureScaleCBuffer_.Size());
 		struct Params { int x; int y; } params{ srcWidth, srcHeight };
 		vkCmdBindPipeline(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipeline(singlePassCS_));
 		vkCmdBindDescriptorSets(cmdInit, VK_PIPELINE_BIND_POINT_COMPUTE, computeShaderManager_.GetPipelineLayout(), 0, 1, &descSet, 0, nullptr);
@@ -857,7 +902,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				VkImageView view = entry->vkTex->CreateViewForMip(i);
 				VK_PROFILE_BEGIN(vulkan, cmdInit, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 					"Compute Upload: %dx%d->%dx%d", mipUnscaledWidth, mipUnscaledHeight, mipWidth, mipHeight);
-				ScaleBufferToImage(cmdInit, view, texBuf, bufferOffset, srcSize, mipUnscaledWidth, mipUnscaledHeight, mipWidth, mipHeight);
+				ScaleBufferToImage(vulkan, cmdInit, view, texBuf, bufferOffset, srcSize, mipUnscaledWidth, mipUnscaledHeight, mipWidth, mipHeight);
 				VK_PROFILE_END(vulkan, cmdInit, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 				vulkan->Delete().QueueDeleteImageView(view);
 			} else {

@@ -692,6 +692,8 @@ VkResult VulkanContext::CreateDevice(int physical_device) {
 	extensionsLookup_.KHR_maintenance4 = EnableDeviceExtension("VK_KHR_maintenance4", VK_API_VERSION_1_3);
 	extensionsLookup_.KHR_multiview = EnableDeviceExtension(VK_KHR_MULTIVIEW_EXTENSION_NAME, VK_API_VERSION_1_1);
 
+	extensionsLookup_.EXT_scalar_block_layout = EnableDeviceExtension(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, VK_API_VERSION_1_2);
+
 	if (EnableDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, VK_API_VERSION_1_1)) {
 		extensionsLookup_.KHR_get_memory_requirements2 = true;
 		extensionsLookup_.KHR_dedicated_allocation = EnableDeviceExtension(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_API_VERSION_1_1);
@@ -730,6 +732,7 @@ VkResult VulkanContext::CreateDevice(int physical_device) {
 		VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR };
 		VkPhysicalDeviceProvokingVertexFeaturesEXT provokingVertexFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT };
 		VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR};
+		VkPhysicalDeviceScalarBlockLayoutFeatures scalarBlockLayoutFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES};
 
 		ChainStruct(features2, &multiViewFeatures);
 		if (extensionsLookup_.KHR_present_wait) {
@@ -744,9 +747,15 @@ VkResult VulkanContext::CreateDevice(int physical_device) {
 		if (extensionsLookup_.KHR_present_mode_fifo_latest_ready) {
 			ChainStruct(features2, &presentModeFifoProps);
 		}
+		if (extensionsLookup_.EXT_scalar_block_layout) {
+			ChainStruct(features2, &scalarBlockLayoutFeatures);
+		}
 		vkGetPhysicalDeviceFeatures2(physical_devices_[physical_device_], &features2);
 		deviceFeatures_.available.standard = features2.features;
 		deviceFeatures_.available.multiview = multiViewFeatures;
+		if (extensionsLookup_.EXT_scalar_block_layout) {
+			deviceFeatures_.available.scalarBlockLayout = scalarBlockLayoutFeatures;
+		}
 		if (extensionsLookup_.KHR_present_wait) {
 			deviceFeatures_.available.presentWait = presentWaitFeatures;
 		}
@@ -803,6 +812,11 @@ VkResult VulkanContext::CreateDevice(int physical_device) {
 		deviceFeatures_.enabled.presentModeFifoProps.presentModeFifoLatestReady = deviceFeatures_.available.presentModeFifoProps.presentModeFifoLatestReady;
 	}
 
+	deviceFeatures_.enabled.scalarBlockLayout = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES};
+	if (extensionsLookup_.EXT_scalar_block_layout) {
+		deviceFeatures_.enabled.scalarBlockLayout.scalarBlockLayout = deviceFeatures_.available.scalarBlockLayout.scalarBlockLayout;
+	}
+
 	// deviceFeatures_.enabled.multiview.multiviewGeometryShader = deviceFeatures_.available.multiview.multiviewGeometryShader;
 
 	VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
@@ -827,6 +841,9 @@ VkResult VulkanContext::CreateDevice(int physical_device) {
 		}
 		if (extensionsLookup_.EXT_provoking_vertex) {
 			ChainStruct(features2, &deviceFeatures_.enabled.provokingVertex);
+		}
+		if (extensionsLookup_.EXT_scalar_block_layout) {
+			ChainStruct(features2, &deviceFeatures_.enabled.scalarBlockLayout);
 		}
 		if (extensionsLookup_.KHR_present_mode_fifo_latest_ready) {
 			ChainStruct(features2, &deviceFeatures_.enabled.presentModeFifoProps);

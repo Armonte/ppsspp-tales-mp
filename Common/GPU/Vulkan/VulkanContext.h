@@ -289,6 +289,7 @@ public:
 		VkPhysicalDevicePresentIdFeaturesKHR presentId;
 		VkPhysicalDeviceProvokingVertexFeaturesEXT provokingVertex;
 		VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoProps;
+		VkPhysicalDeviceScalarBlockLayoutFeatures scalarBlockLayout;
 	};
 
 	const PhysicalDeviceProps &GetPhysicalDeviceProperties(int i = -1) const {
