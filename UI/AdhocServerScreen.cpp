@@ -726,6 +726,8 @@ void AdhocServerScreen::CreatePopupContents(UI::ViewGroup *parent) {
 
 	CollapsibleSection *publicSection = innerView->Add(new CollapsibleSection(n->T("Public server list"), new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT)));
 	for (const auto &entry : entries) {
+		if (entry.hidden)
+			continue;
 		AddButtonFromEntry(publicSection, entry, false);
 	}
 
