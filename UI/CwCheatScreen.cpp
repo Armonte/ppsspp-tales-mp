@@ -33,6 +33,7 @@
 
 #include "UI/GameInfoCache.h"
 #include "UI/CwCheatScreen.h"
+#include "UI/MiscViews.h"
 
 static const int FILE_CHECK_FRAME_INTERVAL = 53;
 
@@ -124,19 +125,29 @@ void CwCheatScreen::CreateContentViews(UI::ViewGroup *parent) {
 	rightScroll->RememberPosition(&g_Config.fCwCheatScrollPosition);
 
 	LinearLayout *rightColumn = new LinearLayoutList(ORIENT_VERTICAL, new LinearLayoutParams(200, FILL_PARENT));
+	rightColumn->SetSpacing(0.0f);
 	rightScroll->Add(rightColumn);
 	rightColumn->Add(new ItemHeader(cw->T("Cheats")));
+	bool prevIsTitle = false;
 	for (size_t i = 0; i < fileInfo_.size(); ++i) {
-		std::string_view title;
-		if (fileInfo_[i].IsTitle(&title)) {
+		std::string_view text;
+		if (fileInfo_[i].IsTitle(&text)) {
 			// Title.
-			TextView *titleView = rightColumn->Add(new TextView(title, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT, UI::Margins(8, 0))));
+			TextView *titleView = rightColumn->Add(new TextView(text, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT, UI::Margins(8, 8, 8, 0))));
 			titleView->SetTextSize(UI::TextSize::Big);
+			prevIsTitle = true;
+		} else if (fileInfo_[i].IsPostComment(&text)) {
+			rightColumn->Add(new SettingHint(text, nullptr));
+			prevIsTitle = false;
 		} else {
 			// Regular cheat code.
+			if (!prevIsTitle) {
+				rightColumn->Add(new Spacer(8.0f));
+			}
 			rightColumn->Add(new CheckBox(&fileInfo_[i].enabled, fileInfo_[i].name))->OnClick.Add([=](UI::EventParams &) {
 				OnCheckBox((int)i);
 			});
+			prevIsTitle = false;
 		}
 	}
 }

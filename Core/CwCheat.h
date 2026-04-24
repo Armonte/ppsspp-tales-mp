@@ -26,6 +26,7 @@ struct CheatLine {
 };
 
 bool DetectCheatTitle(std::string_view name, std::string_view *title);
+bool DetectCheatPostComment(std::string_view name, std::string_view *title);
 
 struct CheatCode {
 	std::string name;
@@ -37,8 +38,11 @@ struct CheatFileInfo {
 	std::string name;
 	bool enabled;
 
-	bool IsTitle(std::string_view *title) {
+	bool IsTitle(std::string_view *title) const {
 		return DetectCheatTitle(name, title);
+	}
+	bool IsPostComment(std::string_view *comment) const {
+		return DetectCheatPostComment(name, comment);
 	}
 };
 
