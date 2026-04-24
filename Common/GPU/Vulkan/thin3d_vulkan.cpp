@@ -1098,7 +1098,8 @@ VKContext::VKContext(VulkanContext *vulkan, bool useRenderThread)
 		WARN_LOG(Log::G3D, "KHR_create_renderpass2 not supported, disabling multisampling");
 		multisampleAllowed = false;
 	} else {
-		_dbg_assert_(vkCreateRenderPass2 != nullptr);
+		// This is hit using a replacement adreno driver, "EggNS mesa skyport".
+		// _dbg_assert_(vkCreateRenderPass2 != nullptr);
 	}
 
 	// We limit multisampling functionality to reasonably recent and known-good tiling GPUs.
