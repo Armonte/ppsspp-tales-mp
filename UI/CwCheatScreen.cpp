@@ -127,9 +127,17 @@ void CwCheatScreen::CreateContentViews(UI::ViewGroup *parent) {
 	rightScroll->Add(rightColumn);
 	rightColumn->Add(new ItemHeader(cw->T("Cheats")));
 	for (size_t i = 0; i < fileInfo_.size(); ++i) {
-		rightColumn->Add(new CheckBox(&fileInfo_[i].enabled, fileInfo_[i].name))->OnClick.Add([=](UI::EventParams &) {
-			OnCheckBox((int)i);
-		});
+		std::string_view title;
+		if (fileInfo_[i].IsTitle(&title)) {
+			// Title.
+			TextView *titleView = rightColumn->Add(new TextView(title, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT, UI::Margins(8, 0))));
+			titleView->SetTextSize(UI::TextSize::Big);
+		} else {
+			// Regular cheat code.
+			rightColumn->Add(new CheckBox(&fileInfo_[i].enabled, fileInfo_[i].name))->OnClick.Add([=](UI::EventParams &) {
+				OnCheckBox((int)i);
+			});
+		}
 	}
 }
 

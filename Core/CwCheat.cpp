@@ -1167,3 +1167,16 @@ bool CheatsInEffect() {
 		return false;
 	return cheatEngine->HasCheats();
 }
+
+bool DetectCheatTitle(std::string_view name, std::string_view *title) {
+	// Use Saramagrean title convention (the most common cheats.db file).
+	const size_t firstOffset = name.find("_[>>>");
+	const size_t secondOffset = name.find("<<<]_");
+	bool isTitle = firstOffset != std::string::npos && secondOffset != std::string::npos && firstOffset < secondOffset;
+	if (!isTitle) {
+		return false;
+	}
+	// Extract the title substring.
+	*title = std::string_view(name.data() + firstOffset + 5, secondOffset - (firstOffset + 5));
+	return true;
+}

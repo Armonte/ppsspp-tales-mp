@@ -25,6 +25,8 @@ struct CheatLine {
 	uint32_t part2;
 };
 
+bool DetectCheatTitle(std::string_view name, std::string_view *title);
+
 struct CheatCode {
 	std::string name;
 	std::vector<CheatLine> lines;
@@ -34,6 +36,10 @@ struct CheatFileInfo {
 	int lineNum;
 	std::string name;
 	bool enabled;
+
+	bool IsTitle(std::string_view *title) {
+		return DetectCheatTitle(name, title);
+	}
 };
 
 struct CheatOperation;
