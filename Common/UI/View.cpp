@@ -344,7 +344,6 @@ bool Clickable::Key(const KeyInput &key) {
 
 bool StickyChoice::Touch(const TouchInput &touch) {
 	bool contains = bounds_.Contains(touch.x, touch.y);
-	dragging_ = false;
 	if (!IsEnabled()) {
 		down_ = false;
 		return contains;
@@ -352,12 +351,18 @@ bool StickyChoice::Touch(const TouchInput &touch) {
 
 	if (touch.flags & TouchInputFlags::DOWN) {
 		if (contains) {
+			dragging_ = true;
+		}
+	}
+	if (touch.flags & TouchInputFlags::UP) {
+		if (dragging_ && contains && !(touch.flags & TouchInputFlags::CANCEL)) {
 			if (IsFocusMovementEnabled())
 				SetFocusedView(this);
-			down_ = true;
 			ClickInternal();
+			dragging_ = false;
 			return true;
 		}
+		dragging_ = false;
 	}
 	return false;
 }
