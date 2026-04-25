@@ -156,6 +156,16 @@
 			"description": "For players looking to play any games",
 			"data_mode": "AemuPostoffice",
 			"status_data_json": "https://cat.wjg.jp/data.json"
+		},
+		{
+			"name": "Sprawl Relay - Brazil",
+			"host": "brazil-01.sprawl-relay.link",
+			"discord": "",
+			"web": "https://status-brazil-01.sprawl-relay.link",
+			"location": "Brazil",
+			"description": "For players looking to play any games",
+			"data_mode": "AemuPostoffice",
+			"status_data_json": ""
 		}
 	]
 }
