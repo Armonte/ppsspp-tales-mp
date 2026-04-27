@@ -40,6 +40,7 @@
 #include "Core/ELF/ParamSFO.h"
 #include "Core/Util/GameManager.h"
 
+// TODO: This is just part of a VolDescriptor, see ISOFileSystem.cpp.
 struct PVD {
 	u8 type;
 	char identifier[5];
