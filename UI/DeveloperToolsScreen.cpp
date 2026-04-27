@@ -242,7 +242,10 @@ void DeveloperToolsScreen::CreateTestsTab(UI::LinearLayout *list) {
 	using namespace UI;
 	auto dev = GetI18NCategory(I18NCat::DEVELOPER);
 
-	list->Add(new Choice(dev->T("Touchscreen Test")))->OnClick.Handle(this, &DeveloperToolsScreen::OnTouchscreenTest);
+	list->Add(new Choice(dev->T("Touchscreen Test")))->OnClick.Add([this](UI::EventParams &e) {
+		screenManager()->push(new TouchTestScreen(gamePath_));
+		// Handle touchscreen test event
+	});
 	// list->Add(new Choice(dev->T("Memstick Test")))->OnClick.Handle(this, &DeveloperToolsScreen::OnMemstickTest);
 	Choice *frameDumpTests = list->Add(new Choice(dev->T("Framedump tests")));
 	frameDumpTests->OnClick.Add([this](UI::EventParams &e) {
@@ -703,10 +706,6 @@ void DeveloperToolsScreen::OnJitDebugTools(UI::EventParams &e) {
 
 void DeveloperToolsScreen::OnGPUDriverTest(UI::EventParams &e) {
 	screenManager()->push(new GPUDriverTestScreen());
-}
-
-void DeveloperToolsScreen::OnTouchscreenTest(UI::EventParams &e) {
-	screenManager()->push(new TouchTestScreen(gamePath_));
 }
 
 void DeveloperToolsScreen::OnJitAffectingSetting(UI::EventParams &e) {

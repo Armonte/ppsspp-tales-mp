@@ -1311,6 +1311,10 @@ void TextEdit::Draw(UIContext &dc) {
 		}
 		selectAtX_ = -1;
 	}
+	if (caret_ < 0 || caret_ > text_.size()) {
+		ERROR_LOG(Log::UI, "Caret position out of bounds: %d (text length %d)", caret_, (int)text_.size());
+		caret_ = (int)text_.size();
+	}
 
 	dc.PopScissor();
 }
@@ -1501,6 +1505,7 @@ bool TextEdit::Key(const KeyInput &input) {
 }
 
 void TextEdit::InsertAtCaret(const char *text) {
+	_dbg_assert_(caret_ >= 0 && caret_ <= (int)text_.size());
 	size_t len = strlen(text);
 	for (size_t i = 0; i < len; i++) {
 		text_.insert(text_.begin() + caret_, text[i]);
