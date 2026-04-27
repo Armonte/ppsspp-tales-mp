@@ -92,7 +92,7 @@ void ChatMenu::CreateSubviews(const Bounds &screenBounds) {
 		box_->SetHasDropShadow(false);
 
 		auto n = GetI18NCategory(I18NCat::NETWORKING);
-		View *title = new PopupHeader(n->T("Chat"));
+		View *title = new PopupHeader(std::string(n->T("Chat")) + ": " + g_Config.sNickName);
 		box_->Add(title);
 
 		CreateContents(box_);

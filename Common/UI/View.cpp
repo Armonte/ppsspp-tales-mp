@@ -1385,10 +1385,6 @@ bool TextEdit::Key(const KeyInput &input) {
 	// Process hardcoded navigation keys. These aren't chars.
 	if (input.flags & KeyInputFlags::DOWN) {
 		switch (input.keyCode) {
-		case NKCODE_CTRL_LEFT:
-		case NKCODE_CTRL_RIGHT:
-			ctrlDown_ = true;
-			break;
 		case NKCODE_DPAD_LEFT:  // ASCII left arrow
 			MoveLeft();
 			break;
@@ -1433,7 +1429,7 @@ bool TextEdit::Key(const KeyInput &input) {
 			break;
 		}
 
-		if (ctrlDown_) {
+		if ((input.flags & KeyInputFlags::MOD_CTRL) || (input.flags & KeyInputFlags::MOD_META)) {
 			switch (input.keyCode) {
 			case NKCODE_C:
 				// Just copy the entire text contents, until we get selection support.
@@ -1481,21 +1477,10 @@ bool TextEdit::Key(const KeyInput &input) {
 		}
 	}
 
-	if (input.flags & KeyInputFlags::UP) {
-		switch (input.keyCode) {
-		case NKCODE_CTRL_LEFT:
-		case NKCODE_CTRL_RIGHT:
-			ctrlDown_ = false;
-			break;
-		default:
-			break;
-		}
-	}
-
 	// Process chars.
 	if (input.flags & KeyInputFlags::CHAR) {
 		const int unichar = input.keyCode;
-		if (unichar >= 0x20 && !ctrlDown_) {  // Ignore control characters.
+		if (unichar >= 0x20 && !(input.flags & KeyInputFlags::MOD_CTRL)) {  // Ignore control characters.
 			// Insert it! (todo: do it with a string insert)
 			char buf[8];
 			buf[u8_wc_toutf8(buf, unichar)] = '\0';

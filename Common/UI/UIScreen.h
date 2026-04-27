@@ -40,6 +40,8 @@ enum class Modifier {
 	RSHIFT = 8,
 	LALT = 16,
 	RALT = 32,
+	LMETA = 64,
+	RMETA = 128,
 };
 ENUM_CLASS_BITOPS(Modifier);
 
@@ -72,7 +74,7 @@ public:
 
 	virtual UI::Margins RootMargins() const { return UI::Margins(0); }
 
-	virtual void focusChanged(ScreenFocusChange focusChange) {
+	virtual void focusChanged(ScreenFocusChange focusChange) override {
 		modifiersPressed_ = Modifier::NONE;
 	}
 
