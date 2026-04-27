@@ -1143,7 +1143,6 @@ private:
 	int caret_;
 	int scrollPos_ = 0;
 	size_t maxLen_;
-	bool ctrlDown_ = false;  // TODO: Make some global mechanism for this.
 	bool passwordMasking_ = false;
 	int align_ = 0;
 	int selectAtX_ = -1;  // on next draw, will select the character closest to this X coordinate. Used for touch selection.

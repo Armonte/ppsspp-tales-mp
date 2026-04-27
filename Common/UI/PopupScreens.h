@@ -567,7 +567,7 @@ private:
 		*shadow = false;
 		return sValue_;
 	}
-	std::string sValue_ = nullptr;
+	std::string sValue_;
 };
 
 enum class FileChooserFileType {

@@ -1298,18 +1298,26 @@ void TextEdit::Draw(UIContext &dc) {
 
 	if (selectAtX_ >= 0) {
 		caret_ = -1;
-		for (int i = 0; i <= text_.size(); i++) {
+		for (int i = 0; i <= text_.size(); ) {
 			dc.MeasureText(dc.GetTheme().uiFont, 1.0f, 1.0f, textToDisplay.substr(0, i), &w, &h, ALIGN_VCENTER | ALIGN_LEFT | align_);
 			float charX = w - scrollPos_;
 			if (charX >= selectAtX_ - 3) {
 				caret_ = i;
 				break;
 			}
+			if (i >= text_.size()) {
+				break;
+			}
+			u8_inc(text_.c_str(), &i);
 		}
 		if (caret_ == -1) {
 			caret_ = (int)text_.size();
 		}
 		selectAtX_ = -1;
+	}
+	if (caret_ < 0 || caret_ > text_.size()) {
+		ERROR_LOG(Log::UI, "Caret position out of bounds: %d (text length %d)", caret_, (int)text_.size());
+		caret_ = (int)text_.size();
 	}
 
 	dc.PopScissor();
@@ -1385,10 +1393,6 @@ bool TextEdit::Key(const KeyInput &input) {
 	// Process hardcoded navigation keys. These aren't chars.
 	if (input.flags & KeyInputFlags::DOWN) {
 		switch (input.keyCode) {
-		case NKCODE_CTRL_LEFT:
-		case NKCODE_CTRL_RIGHT:
-			ctrlDown_ = true;
-			break;
 		case NKCODE_DPAD_LEFT:  // ASCII left arrow
 			MoveLeft();
 			break;
@@ -1433,7 +1437,7 @@ bool TextEdit::Key(const KeyInput &input) {
 			break;
 		}
 
-		if (ctrlDown_) {
+		if ((input.flags & KeyInputFlags::MOD_CTRL) || (input.flags & KeyInputFlags::MOD_META)) {
 			switch (input.keyCode) {
 			case NKCODE_C:
 				// Just copy the entire text contents, until we get selection support.
@@ -1481,21 +1485,10 @@ bool TextEdit::Key(const KeyInput &input) {
 		}
 	}
 
-	if (input.flags & KeyInputFlags::UP) {
-		switch (input.keyCode) {
-		case NKCODE_CTRL_LEFT:
-		case NKCODE_CTRL_RIGHT:
-			ctrlDown_ = false;
-			break;
-		default:
-			break;
-		}
-	}
-
 	// Process chars.
 	if (input.flags & KeyInputFlags::CHAR) {
 		const int unichar = input.keyCode;
-		if (unichar >= 0x20 && !ctrlDown_) {  // Ignore control characters.
+		if (unichar >= 0x20 && !(input.flags & KeyInputFlags::MOD_CTRL)) {  // Ignore control characters.
 			// Insert it! (todo: do it with a string insert)
 			char buf[8];
 			buf[u8_wc_toutf8(buf, unichar)] = '\0';
@@ -1516,6 +1509,7 @@ bool TextEdit::Key(const KeyInput &input) {
 }
 
 void TextEdit::InsertAtCaret(const char *text) {
+	_dbg_assert_(caret_ >= 0 && caret_ <= (int)text_.size());
 	size_t len = strlen(text);
 	for (size_t i = 0; i < len; i++) {
 		text_.insert(text_.begin() + caret_, text[i]);

@@ -139,6 +139,10 @@ bool UIScreen::UnsyncKey(const KeyInput &key) {
 		case NKCODE_SHIFT_RIGHT: modifiersPressed_ |= Modifier::RSHIFT; break;
 		case NKCODE_ALT_LEFT: modifiersPressed_ |= Modifier::LALT; break;
 		case NKCODE_ALT_RIGHT: modifiersPressed_ |= Modifier::RALT; break;
+		case NKCODE_META_LEFT: modifiersPressed_ |= Modifier::LMETA; break;
+		case NKCODE_META_RIGHT: modifiersPressed_ |= Modifier::RMETA; break;
+		default:
+			break;
 		}
 	}
 	if (key.flags & KeyInputFlags::UP) {
@@ -149,6 +153,10 @@ bool UIScreen::UnsyncKey(const KeyInput &key) {
 		case NKCODE_SHIFT_RIGHT: modifiersPressed_ &= ~Modifier::RSHIFT; break;
 		case NKCODE_ALT_LEFT: modifiersPressed_ &= ~Modifier::LALT; break;
 		case NKCODE_ALT_RIGHT: modifiersPressed_ &= ~Modifier::RALT; break;
+		case NKCODE_META_LEFT: modifiersPressed_ &= ~Modifier::LMETA; break;
+		case NKCODE_META_RIGHT: modifiersPressed_ &= ~Modifier::RMETA; break;
+		default:
+			break;
 		}
 	}
 
@@ -164,6 +172,9 @@ bool UIScreen::UnsyncKey(const KeyInput &key) {
 	}
 	if (modifiersPressed_ & (Modifier::LALT | Modifier::RALT)) {
 		ev.key.flags |= KeyInputFlags::MOD_ALT;
+	}
+	if (modifiersPressed_ & (Modifier::LMETA | Modifier::RMETA)) {
+		ev.key.flags |= KeyInputFlags::MOD_META;
 	}
 	std::lock_guard<std::mutex> guard(eventQueueLock_);
 	eventQueue_.push_back(ev);

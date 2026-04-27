@@ -1342,7 +1342,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 
 void UpdateTextFocus() {
 	if (g_textFocusChanged) {
-		INFO_LOG(Log::System, "Updating text focus: %d", g_textFocus);
+		DEBUG_LOG(Log::System, "Updating text focus: %d", g_textFocus);
 		if (g_textFocus) {
 			SDL_StartTextInput();
 		} else {
