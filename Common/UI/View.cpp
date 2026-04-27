@@ -1298,13 +1298,17 @@ void TextEdit::Draw(UIContext &dc) {
 
 	if (selectAtX_ >= 0) {
 		caret_ = -1;
-		for (int i = 0; i <= text_.size(); i++) {
+		for (int i = 0; i <= text_.size(); ) {
 			dc.MeasureText(dc.GetTheme().uiFont, 1.0f, 1.0f, textToDisplay.substr(0, i), &w, &h, ALIGN_VCENTER | ALIGN_LEFT | align_);
 			float charX = w - scrollPos_;
 			if (charX >= selectAtX_ - 3) {
 				caret_ = i;
 				break;
 			}
+			if (i >= text_.size()) {
+				break;
+			}
+			u8_inc(text_.c_str(), &i);
 		}
 		if (caret_ == -1) {
 			caret_ = (int)text_.size();
