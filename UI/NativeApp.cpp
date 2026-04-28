@@ -624,12 +624,14 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 					boot_filename = Path(str);
 					skipLogo = true;
 				}
+				// This is needed on iOS, to fixup the path to match the current app directory, if it's stored in it.
+				TryUpdateSavedPath(&boot_filename);
 				if (okToLoad && okToCheck) {
 					std::unique_ptr<FileLoader> fileLoader(ConstructFileLoader(boot_filename));
 					if (!fileLoader->Exists()) {
 						fprintf(stderr, "File not found: %s\n", boot_filename.c_str());
-#if defined(_WIN32) || defined(__ANDROID__)
-						// Ignore and proceed.
+
+#if defined(_WIN32) || defined(__ANDROID__) || PPSSPP_PLATFORM(IOS)
 						boot_filename.clear();
 #else
 						// Bail.
@@ -639,7 +641,7 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 				}
 			} else {
 				fprintf(stderr, "Syntax error: Can only boot one file.\nNote: Many command line args need a =, like --appendconfig=FILENAME.ini.\n");
-#if defined(_WIN32) || defined(__ANDROID__)
+#if defined(_WIN32) || defined(__ANDROID__) || PPSSPP_PLATFORM(IOS)
 				// Ignore and proceed.
 #else
 				// Bail.
