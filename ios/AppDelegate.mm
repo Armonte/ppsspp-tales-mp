@@ -5,6 +5,7 @@
 #import "Common/System/NativeApp.h"
 #import "Core/System.h"
 #import "Core/Config.h"
+#import "Core/Util/PathUtil.h"
 #import "Common/Log.h"
 #import "IAPManager.h"
 
@@ -107,9 +108,48 @@ __attribute__((used)) static Class _forceLinkSceneDelegate = [SceneDelegate clas
 - (void)applicationWillTerminate:(UIApplication *)application {
 }
 
+// In AppDelegate.mm
+- (void)processFilePath:(NSString *)path {
+	// Convert NSString to std::string
+	std::string cppPath([path UTF8String]);
+
+	// Try to fixup the path, the app directory changes on every bootup.
+	Path gamePath(cppPath);
+	TryUpdateSavedPath(&gamePath);
+
+	// Call the C++ function to handle the file
+	System_PostUIMessage(UIMessage::REQUEST_GAME_BOOT, gamePath.ToString());
+}
+
+- (BOOL)application:(UIApplication *)app
+			openURL:(NSURL *)url
+			options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+
+	// 1. Check the scheme
+	if (![[url scheme] isEqualToString:@"ppsspp"]) {
+		NSLog(@"PPSSPPUIApplication.openURL called with invalid URL: %@", url);
+		return NO;
+	}
+
+	NSLog(@"PPSSPPUIApplication.openURL called with valid URL: %@", url);
+	// 2. Parse the URL (using NSURLComponents is safer than manual string parsing)
+	NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+	NSArray *queryItems = [components queryItems];
+	NSLog(@"PPSSPPUIApplication.openURL query items: %@", queryItems);
+	for (NSURLQueryItem *item in queryItems) {
+		if ([item.name isEqualToString:@"path"]) {
+			NSString *receivedPath = item.value;
+			[self processFilePath:receivedPath];
+		} else {
+			NSLog(@"PPSSPPUIApplication.openURL: Unrecognized query item: %@=%@", item.name, item.value);
+		}
+	}
+	return YES;
+}
+
 - (UIInterfaceOrientationMask)application:(UIApplication *)application supportedInterfaceOrientationsForWindow:(UIWindow *)window {
-    switch (g_Config.iScreenRotation) {
-	case ROTATION_LOCKED_HORIZONTAL: 
+	switch (g_Config.iScreenRotation) {
+	case ROTATION_LOCKED_HORIZONTAL:
 		return UIInterfaceOrientationMaskLandscapeRight;
 	case ROTATION_LOCKED_VERTICAL:
 	case ROTATION_LOCKED_VERTICAL180:
@@ -132,3 +172,26 @@ __attribute__((used)) static Class _forceLinkSceneDelegate = [SceneDelegate clas
 }
 
 @end
+
+void copyDeepLinkForPath(std::string_view filePath) {
+	// 1. Convert std::string_view to NSString
+	// We use the length and data to avoid issues with null terminators
+	NSString *pathString = [[NSString alloc] initWithBytes:filePath.data()
+							length:filePath.length()
+							encoding:NSUTF8StringEncoding];
+
+	// 2. Percent-encode the path
+	// This handles spaces, slashes, and special characters for the URL query
+	NSCharacterSet *allowedChars = [NSCharacterSet URLQueryAllowedCharacterSet];
+	NSString *encodedPath = [pathString stringByAddingPercentEncodingWithAllowedCharacters:allowedChars];
+
+	// 3. Construct the full URL
+	// Format: scheme://host?query
+	NSString *deepLink = [NSString stringWithFormat:@"ppsspp://open?path=%@", encodedPath];
+
+	// 4. Copy to the iOS System Clipboard (UIPasteboard)
+	[UIPasteboard generalPasteboard].string = deepLink;
+
+	// Optional: Log it for debugging
+	NSLog(@"Deep link copied: %@", deepLink);
+}

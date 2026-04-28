@@ -57,6 +57,14 @@
 #include "UI/SavedataScreen.h"
 #include "UI/MiscViews.h"
 
+// This is in an objective-C file.
+#if PPSSPP_PLATFORM(IOS)
+void copyDeepLinkForPath(std::string_view filePath);
+#else
+// dummy
+void copyDeepLinkForPath(std::string_view) {}
+#endif
+
 constexpr GameInfoFlags g_desiredFlags = GameInfoFlags::PARAM_SFO | GameInfoFlags::ICON | GameInfoFlags::PIC0 | GameInfoFlags::PIC1 | GameInfoFlags::ICON1_PMF | GameInfoFlags::UNCOMPRESSED_SIZE | GameInfoFlags::SIZE | GameInfoFlags::SAVEDATA_SIZE;
 
 class PMFView : public UI::InertView {
@@ -558,6 +566,17 @@ void GameScreen::CreateContextMenu(UI::ViewGroup *parent) {
 			// TODO: We should be able to do TriggerFinish here, but unfortunately
 			// the screen manager still considers the popup dialog the current dialog.
 			screenManager()->switchScreen(new MainScreen());
+		});
+	}
+
+	if (System_GetPropertyBool(SYSPROP_HAS_DEEP_LINKS)) {
+		Choice *btnCopyDeepLink = parent->Add(new Choice(di->T("Copy deep link"), ImageID("I_FILE_COPY")));
+		btnCopyDeepLink->OnClick.Add([this](UI::EventParams &e) {
+			auto di = GetI18NCategory(I18NCat::DIALOG);
+			const std::string deepLink = gamePath_.ToString();
+			copyDeepLinkForPath(deepLink);
+			// Success indication. Not worth a translatable string.
+			g_OSD.Show(OSDType::MESSAGE_INFO, ApplySafeSubstitutions(di->T("Copied to clipboard: %1"), deepLink), 0.0f, "copyToClip");
 		});
 	}
 

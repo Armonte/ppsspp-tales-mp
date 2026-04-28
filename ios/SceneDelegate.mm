@@ -95,6 +95,24 @@
 	[sharedViewController didBecomeActive];
 }
 
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+	for (UIOpenURLContext *context in URLContexts) {
+		NSLog(@"SceneDelegate: openURLContexts called with URL: %@", context.URL);
+		NSURL *url = context.URL;
+		if (![[url scheme] isEqualToString:@"ppsspp"]) {
+			NSLog(@"SceneDelegate: ignoring URL with unknown scheme: %@", url);
+			continue;
+		}
+		NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+		for (NSURLQueryItem *item in components.queryItems) {
+			if ([item.name isEqualToString:@"path"]) {
+				AppDelegate *appDelegate = (AppDelegate *)[UIApplication sharedApplication].delegate;
+				[appDelegate processFilePath:item.value];
+			}
+		}
+	}
+}
+
 - (void)sceneWillResignActive:(UIScene *)scene {
 	INFO_LOG(Log::G3D, "sceneWillResignActive");
 
