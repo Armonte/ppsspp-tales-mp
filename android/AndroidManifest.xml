@@ -113,6 +113,9 @@
 		<activity android:name=".ImageResultProxyActivity"
 			android:theme="@style/Theme.ProxyTransparent"
 			android:launchMode="standard" />
+		<activity android:name=".DocumentResultProxyActivity"
+			android:theme="@style/Theme.ProxyTransparent"
+			android:launchMode="standard" />
         <profileable android:shell="true" android:enabled="true" />
     </application>
 

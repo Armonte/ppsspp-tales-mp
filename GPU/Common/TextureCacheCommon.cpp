@@ -2825,16 +2825,20 @@ bool TextureCacheCommon::PrepareBuildTexture(BuildTexturePlan &plan, TexCacheEnt
 		plan.scaleFactor = plan.scaleFactor > 4 ? 4 : (plan.scaleFactor > 2 ? 2 : 1);
 	}
 
+	if (plan.hardwareScaling) {
+		plan.scaleFactor = shaderScaleFactor_;
+	}
+
 	bool isFakeMipmapChange = false;
 	if (plan.badMipSizes) {
 		isFakeMipmapChange = IsFakeMipmapChange();
 
 		// Check for pure 3D texture.
-		int tw = gstate.getTextureWidth(0);
-		int th = gstate.getTextureHeight(0);
+		const int tw = gstate.getTextureWidth(0);
+		const int th = gstate.getTextureHeight(0);
 		bool pure3D = true;
 		for (int i = 0; i < plan.levelsToLoad; i++) {
-			if (gstate.getTextureWidth(i) != gstate.getTextureWidth(0) || gstate.getTextureHeight(i) != gstate.getTextureHeight(0)) {
+			if (gstate.getTextureWidth(i) != tw || gstate.getTextureHeight(i) != th) {
 				pure3D = false;
 				break;
 			}
@@ -2848,7 +2852,8 @@ bool TextureCacheCommon::PrepareBuildTexture(BuildTexturePlan &plan, TexCacheEnt
 			pure3D = false;
 		} else if (isFakeMipmapChange) {
 			// We don't want to create a volume texture, if this is a "fake mipmap change".
-			// In practice due to the compat flag, the only time we end up here is in JP Tactics Ogre.
+			// In practice due to the compat flag, the only time we end up here is in JP Tactics Ogre,
+			// or with OpenGL ES 2.0.
 			pure3D = false;
 		}
 
@@ -2861,10 +2866,6 @@ bool TextureCacheCommon::PrepareBuildTexture(BuildTexturePlan &plan, TexCacheEnt
 		plan.levelsToCreate = 1;
 	}
 
-	if (plan.hardwareScaling) {
-		plan.scaleFactor = shaderScaleFactor_;
-	}
-
 	// We generate missing mipmaps from maxLevel+1 up to this level. maxLevel can get overwritten below
 	// such as when using replacement textures - but let's keep the same amount of levels for generation.
 	// Not all backends will generate mipmaps, and in GL we can't really control the number of levels.
@@ -2873,7 +2874,7 @@ bool TextureCacheCommon::PrepareBuildTexture(BuildTexturePlan &plan, TexCacheEnt
 	plan.w = gstate.getTextureWidth(0);
 	plan.h = gstate.getTextureHeight(0);
 
-	bool isPPGETexture = entry->addr >= PSP_GetKernelMemoryBase() && entry->addr < PSP_GetKernelMemoryEnd();
+	const bool isPPGETexture = entry->addr >= PSP_GetKernelMemoryBase() && entry->addr < PSP_GetKernelMemoryEnd();
 
 	// Don't scale the PPGe texture.
 	if (isPPGETexture) {
