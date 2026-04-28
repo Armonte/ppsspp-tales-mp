@@ -1089,6 +1089,7 @@ const FontStyle *GetTextStyle(const UIContext &dc, TextSize size) {
 	default:
 		break;
 	}
+	_dbg_assert_(style->sizePts > 0);
 	return style;
 }
 

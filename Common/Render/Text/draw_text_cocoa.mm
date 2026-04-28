@@ -138,6 +138,10 @@ TextDrawerCocoa::~TextDrawerCocoa() {
 
 // TODO: Share with other backends.
 void TextDrawerCocoa::SetOrCreateFont(const FontStyle &style) {
+	if (style.sizePts <= 0) {
+		return;
+	}
+
 	auto iter = fontMap_.find(style);
 	if (iter != fontMap_.end()) {
 		fontStyle_ = style;
