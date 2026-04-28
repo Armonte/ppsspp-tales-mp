@@ -699,6 +699,10 @@ int main(int argc, char *argv[]) {
 	}
 	PROFILE_INIT();
 
+#if PPSSPP_PLATFORM(IOS_APP_STORE) && defined(_DEBUG)
+	g_logManager.SetOutputsEnabled(LogOutput::Stdio);
+#endif
+
 	@autoreleasepool {
 		return UIApplicationMain(argc, argv, NSStringFromClass([PPSSPPUIApplication class]), NSStringFromClass([AppDelegate class]));
 	}

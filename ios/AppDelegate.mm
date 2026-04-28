@@ -121,32 +121,6 @@ __attribute__((used)) static Class _forceLinkSceneDelegate = [SceneDelegate clas
 	System_PostUIMessage(UIMessage::REQUEST_GAME_BOOT, gamePath.ToString());
 }
 
-- (BOOL)application:(UIApplication *)app
-			openURL:(NSURL *)url
-			options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
-
-	// 1. Check the scheme
-	if (![[url scheme] isEqualToString:@"ppsspp"]) {
-		NSLog(@"PPSSPPUIApplication.openURL called with invalid URL: %@", url);
-		return NO;
-	}
-
-	NSLog(@"PPSSPPUIApplication.openURL called with valid URL: %@", url);
-	// 2. Parse the URL (using NSURLComponents is safer than manual string parsing)
-	NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
-	NSArray *queryItems = [components queryItems];
-	NSLog(@"PPSSPPUIApplication.openURL query items: %@", queryItems);
-	for (NSURLQueryItem *item in queryItems) {
-		if ([item.name isEqualToString:@"path"]) {
-			NSString *receivedPath = item.value;
-			[self processFilePath:receivedPath];
-		} else {
-			NSLog(@"PPSSPPUIApplication.openURL: Unrecognized query item: %@=%@", item.name, item.value);
-		}
-	}
-	return YES;
-}
-
 - (UIInterfaceOrientationMask)application:(UIApplication *)application supportedInterfaceOrientationsForWindow:(UIWindow *)window {
 	switch (g_Config.iScreenRotation) {
 	case ROTATION_LOCKED_HORIZONTAL:
