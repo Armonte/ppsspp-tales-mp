@@ -1,0 +1,76 @@
+package org.ppsspp.ppsspp;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.util.Log;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.documentfile.provider.DocumentFile;
+
+public class DocumentResultProxyActivity extends AppCompatActivity {
+	public static final String TAG = "PPSSPP";
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+
+		// Get the Intent that was meant for the picker
+		Intent pickerIntent = getIntent().getParcelableExtra("picker_intent");
+		int requestId = getIntent().getIntExtra("request_id", -1);
+
+		Log.i(TAG, "DocumentResultProxy: Setting up activity launch, requestId = " + requestId + (savedInstanceState == null ? " (new)" : " (recreated)"));
+
+		ActivityResultLauncher<Intent> launcher = registerForActivityResult(
+			new ActivityResultContracts.StartActivityForResult(),
+			result -> {
+				Log.i(TAG, "DocumentResultProxy: Packing return intent, requestId = " + requestId);
+
+				Intent returnIntent = new Intent(this, PpssppActivity.class);
+				if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+					Uri uri = result.getData().getData();
+					if (uri != null) {
+						Log.i(TAG, "DocumentResultProxy: Selected URI: " + uri);
+						try {
+							if (pickerIntent != null && Intent.ACTION_OPEN_DOCUMENT_TREE.equals(pickerIntent.getAction())) {
+								getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+								DocumentFile documentFile = DocumentFile.fromTreeUri(this, uri);
+								if (documentFile != null) {
+									uri = documentFile.getUri();
+									Log.i(TAG, "DocumentResultProxy: DocumentFile URI: " + uri);
+								}
+							} else {
+								getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+							}
+						} catch (Exception e) {
+							Log.w(TAG, "DocumentResultProxy: Exception getting permissions or DocumentFile: " + e);
+						}
+						returnIntent.putExtra("result_path", uri.toString());
+					} else {
+						Log.w(TAG, "DocumentResultProxy: URI is null in result data");
+					}
+				}
+
+				returnIntent.putExtra("result_code", result.getResultCode());
+				returnIntent.putExtra("request_id", requestId);
+
+				// This flag is key: it finds the existing instance of your main activity
+				returnIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+				startActivity(returnIntent);
+				finish();
+			}
+		);
+
+		if (savedInstanceState == null) {
+			if (pickerIntent != null) {
+				launcher.launch(pickerIntent);
+			} else {
+				Log.e(TAG, "DocumentResultProxy: No picker intent provided");
+				finish();
+			}
+		}
+	}
+}
