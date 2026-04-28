@@ -180,7 +180,6 @@ static void ScheduleLagSync(int over = 0) {
 
 void __DisplayInit() {
 	__DisplaySetFramerate();
-	DisplayHWReset();
 	hasSetMode = false;
 	mode = 0;
 	resumeMode = 0;
