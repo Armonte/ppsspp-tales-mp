@@ -55,7 +55,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          Copy-Item build\Windows\Release\PPSSPPWindows64.exe dist\
+          $exe = Get-ChildItem -Recurse -Path build -Filter "PPSSPPWindows*.exe" | Select-Object -First 1
+          if (-not $exe) { Get-ChildItem -Recurse -Path build -Filter "*.exe" | Format-Table FullName; throw "PPSSPPWindows*.exe not found" }
+          Copy-Item $exe.FullName dist\
           if (Test-Path build\assets) { Copy-Item -Recurse build\assets dist\ }
           Compress-Archive -Path dist\* -DestinationPath ppsspp-tales-mp-windows-x64.zip
       - uses: actions/upload-artifact@v4
