@@ -1,7 +1,7 @@
 #include "Windows/stdafx.h"
 #include <windowsx.h>
 #include <commctrl.h>
-#include "..\resource.h"
+#include "../resource.h"
 
 #include "Common/Data/Encoding/Utf8.h"
 #include "Common/System/Display.h"

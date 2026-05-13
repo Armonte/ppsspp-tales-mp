@@ -2755,7 +2755,7 @@ setup_target_project(${CoreLibName} Core)
 add_custom_target(GitVersion DEPENDS something_that_never_exists)
 
 set(WIN_VERSION_CMD "")
-if (WIN32)
+if (WIN32 AND NOT CMAKE_CROSSCOMPILING)
 	set(WIN_VERSION_CMD COMMAND ${CMAKE_SOURCE_DIR}/Windows/git-version-gen.cmd PPSSPPWindows)
 endif()
 

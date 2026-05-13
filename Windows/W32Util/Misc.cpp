@@ -399,6 +399,9 @@ int GenericListControl::HandleNotify(LPARAM lParam) {
 
 	if (mhdr->code == LVN_INCREMENTALSEARCH) {
 		NMLVFINDITEM *request = (NMLVFINDITEM *)lParam;
+#ifndef LVFI_SUBSTRING
+#define LVFI_SUBSTRING 0x0004  // mingw lacks this Win10+ flag
+#endif
 		uint32_t supported = LVFI_WRAP | LVFI_STRING | LVFI_PARTIAL | LVFI_SUBSTRING;
 		if ((request->lvfi.flags & ~supported) == 0 && (request->lvfi.flags & LVFI_STRING) != 0) {
 			bool wrap = (request->lvfi.flags & LVFI_WRAP) != 0;

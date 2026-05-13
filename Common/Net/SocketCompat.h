@@ -7,6 +7,21 @@
 #include <io.h>
 #include <winsock2.h>
 #include <WS2tcpip.h>
+// mingw's headers gate these on newer NTDDI versions than we target. Values match MS-Windows-SDK definitions.
+#ifdef __MINGW32__
+#ifndef TCP_MAXSEG
+#define TCP_MAXSEG 0x04
+#endif
+#ifndef TCP_KEEPALIVE
+#define TCP_KEEPALIVE 0x03
+#endif
+#ifndef TCP_KEEPCNT
+#define TCP_KEEPCNT 0x10
+#endif
+#ifndef TCP_KEEPINTVL
+#define TCP_KEEPINTVL 0x11
+#endif
+#endif
 #else
 #include <unistd.h>
 #include <sys/types.h>

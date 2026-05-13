@@ -34,6 +34,16 @@ struct XINPUT_CAPABILITIES_EX {
 
 typedef DWORD (WINAPI *XInputGetState_t) (DWORD dwUserIndex, XINPUT_STATE* pState);
 typedef DWORD (WINAPI *XInputSetState_t) (DWORD dwUserIndex, XINPUT_VIBRATION* pVibration);
+#ifndef XINPUT_CAPABILITIES_EX
+typedef struct _XINPUT_CAPABILITIES_EX {
+    XINPUT_CAPABILITIES Capabilities;
+    WORD VendorId;
+    WORD ProductId;
+    WORD VersionNumber;
+    WORD unk1;
+    DWORD unk2;
+} XINPUT_CAPABILITIES_EX;
+#endif
 typedef DWORD (WINAPI *XInputGetCapabilitiesEx_t) (DWORD unknown, DWORD dwUserIndex, DWORD flags, XINPUT_CAPABILITIES_EX *pCapabilities);
 
 static XInputGetState_t PPSSPP_XInputGetState = nullptr;

@@ -525,8 +525,10 @@ namespace MainWindow {
 
 		// SetWindowLong(hwndMain, GWL_EXSTYLE, WS_EX_APPWINDOW);
 
+#ifdef DWMWA_WINDOW_CORNER_PREFERENCE  // Win11 SDK only; skip on older mingw
 		const DWM_WINDOW_CORNER_PREFERENCE pref = DWMWCP_DONOTROUND;
 		DwmSetWindowAttribute(hwndMain, DWMWA_WINDOW_CORNER_PREFERENCE, &pref, sizeof(pref));
+#endif
 		ApplyFullscreenState(hwndMain, g_Config.bFullScreen);
 
 		MainMenuInit(hwndMain, g_hMenu);

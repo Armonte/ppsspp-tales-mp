@@ -9,6 +9,10 @@
 #include "Core/HLE/HLE.h"
 #ifdef __MINGW32__
 #include <mswsock.h>
+// mingw's ws2tcpip.h gates this on NTDDI_WIN10_RS5; define manually if missing.
+#ifndef TCP_MAXSEG
+#define TCP_MAXSEG 0x04
+#endif
 #endif
 
 int convertMsgFlagPSP2Host(int flag) {
