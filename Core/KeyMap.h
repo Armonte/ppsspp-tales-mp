@@ -122,7 +122,9 @@ namespace KeyMap {
 		std::string ToConfigString() const;
 		std::string ToVisualString() const;
 
-		bool operator <(const MultiInputMapping &other) {
+		bool operator <(const MultiInputMapping &other) const {
+			if (padIndex != other.padIndex)
+				return padIndex < other.padIndex;
 			for (size_t i = 0; i < mappings.capacity(); i++) {
 				// If one ran out of entries, the other wins.
 				if (mappings.size() == i && other.mappings.size() > i) return true;
@@ -133,12 +135,17 @@ namespace KeyMap {
 			return false;
 		}
 
+		// Which virtual PSP pad this binding drives (0 = real pad, 1..3 = MMIO mirror).
+		// Default 0 preserves existing configs and behavior.
+		int padIndex = 0;
+
 		bool operator ==(const MultiInputMapping &other) const {
-			return mappings == other.mappings;
+			return padIndex == other.padIndex && mappings == other.mappings;
 		}
 
 		bool EqualsSingleMapping(const InputMapping &other) const {
-			return mappings.size() == 1 && mappings[0] == other;
+			// Only pad-0 single-mapping bindings count as "equal" to a raw InputMapping.
+			return padIndex == 0 && mappings.size() == 1 && mappings[0] == other;
 		}
 
 		bool empty() const {

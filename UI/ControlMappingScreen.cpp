@@ -39,6 +39,7 @@
 #include "Core/KeyMap.h"
 #include "Core/HLE/sceCtrl.h"
 #include "Core/Config.h"
+#include "Core/HLE/sceCtrl.h"     // NUM_VIRTUAL_PADS
 #include "UI/ControlMappingScreen.h"
 #include "UI/PopupScreens.h"
 #include "UI/JoystickHistoryView.h"
@@ -48,6 +49,21 @@
 #endif
 
 using KeyMap::MultiInputMapping;
+
+// Currently-selected virtual pad in the ControlMappingScreen. Persists across
+// re-entries so the user doesn't lose their place. Read by:
+//   - SingleControlMapper::Refresh (display filter)
+//   - the four save sites (OnAdd, OnReplace, OnReplaceAll, OnAddMouse) to stamp
+//     the chosen pad onto newly-captured MultiInputMappings
+static int g_currentEditPad = 0;
+
+// PopupMultiChoice expects `const char **`, so the inner pointers can't be const.
+static const char *kVirtualPadLabels[NUM_VIRTUAL_PADS] = {
+	"Pad 1 (real PSP)",
+	"Pad 2 (virtual)",
+	"Pad 3 (virtual)",
+	"Pad 4 (virtual)",
+};
 
 class SingleControlMapper : public UI::LinearLayout {
 public:
@@ -128,7 +144,15 @@ void SingleControlMapper::Refresh() {
 	KeyMap::InputMappingsFromPspButton(pspKey_, &mappings, false);
 
 	rows_.clear();
+	int visibleRows = 0;
 	for (size_t i = 0; i < mappings.size(); i++) {
+		// Filter the displayed bindings by the currently-selected virtual pad.
+		// `i` is still the absolute index into the underlying KeyMap list, which
+		// is what KeyMap::ReplaceSingleKeyMapping / DeleteNthMapping expect — so
+		// we tag rows with `i` (not visibleRows) so OnReplace/OnDelete remain correct.
+		if (mappings[i].padIndex != g_currentEditPad)
+			continue;
+
 		std::string multiMappingString = mappings[i].ToVisualString();
 		LinearLayout *row = rightColumn->Add(new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT)));
 		row->SetSpacing(2.0f);
@@ -141,9 +165,10 @@ void SingleControlMapper::Refresh() {
 		Choice *d = row->Add(new Choice(ImageID("I_TRASHCAN"), new LayoutParams(WRAP_CONTENT, itemH)));
 		d->SetTag(StringFromFormat("%d_Del%d", (int)i, pspKey_));
 		d->OnClick.Handle(this, &SingleControlMapper::OnDelete);
+		visibleRows++;
 	}
 
-	if (mappings.empty()) {
+	if (visibleRows == 0) {
 		// look like an empty line
 		Choice *c = rightColumn->Add(new Choice("", new LinearLayoutParams(FILL_PARENT, itemH)));
 		c->OnClick.Handle(this, &SingleControlMapper::OnAdd);
@@ -156,6 +181,7 @@ void SingleControlMapper::OnReplace(UI::EventParams &params) {
 		using namespace UI;
 		if (mapping.empty())
 			return;
+		mapping.padIndex = g_currentEditPad;
 		bool success = KeyMap::ReplaceSingleKeyMapping(pspKey_, index, mapping);
 		if (!success) {
 			replaceAllButton_->SetFocus(FocusFlags::CAUSE_FORCED); // Last got removed as a duplicate
@@ -173,6 +199,8 @@ void SingleControlMapper::OnReplaceAll(UI::EventParams &params) {
 	scrm_->push(new KeyMappingNewKeyDialog(pspKey_, true, [this](KeyMap::MultiInputMapping mapping) {
 		if (mapping.empty())
 			return;
+		// Stamp the currently-selected pad onto the newly-captured binding.
+		mapping.padIndex = g_currentEditPad;
 		KeyMap::SetInputMapping(pspKey_, mapping, true);
 		replaceAllButton_->SetFocus(UI::FocusFlags::CAUSE_FORCED);
 		KeyMap::UpdateNativeMenuKeys();
@@ -184,6 +212,7 @@ void SingleControlMapper::OnAdd(UI::EventParams &params) {
 	scrm_->push(new KeyMappingNewKeyDialog(pspKey_, true, [this](KeyMap::MultiInputMapping mapping) {
 		if (mapping.empty())
 			return;
+		mapping.padIndex = g_currentEditPad;
 		KeyMap::SetInputMapping(pspKey_, mapping, false);
 		addButton_->SetFocus(UI::FocusFlags::CAUSE_FORCED);
 		KeyMap::UpdateNativeMenuKeys();
@@ -196,6 +225,7 @@ void SingleControlMapper::OnAddMouse(UI::EventParams &params) {
 	scrm_->push(new KeyMappingNewMouseKeyDialog(pspKey_, true, [this](KeyMap::MultiInputMapping mapping) {
 		if (mapping.empty())
 			return;
+		mapping.padIndex = g_currentEditPad;
 		KeyMap::SetInputMapping(pspKey_, mapping, false);
 		addButton_->SetFocus(UI::FocusFlags::CAUSE_FORCED);
 		KeyMap::UpdateNativeMenuKeys();
@@ -230,6 +260,7 @@ static const BindingCategory cats[] = {
 void ControlMappingScreen::CreateSettingsViews(UI::ViewGroup *parent) {
 	using namespace UI;
 	auto km = GetI18NCategory(I18NCat::KEYMAPPING);
+	auto co = GetI18NCategory(I18NCat::CONTROLS);
 	parent->Add(new Choice(km->T("Clear All")))->OnClick.Add([](UI::EventParams &) {
 		KeyMap::ClearAllMappings();
 	});
@@ -246,6 +277,14 @@ void ControlMappingScreen::CreateSettingsViews(UI::ViewGroup *parent) {
 	});
 	parent->Add(new CheckBox(&g_Config.bAllowMappingCombos, km->T("Allow combo mappings")));
 	parent->Add(new CheckBox(&g_Config.bStrictComboOrder, km->T("Strict combo input order")));
+
+	if (g_Config.bEnableExtraPads) {
+		PopupMultiChoice *padChoice = parent->Add(new PopupMultiChoice(
+			&g_currentEditPad, co->T("Virtual Pad"),
+			kVirtualPadLabels, 0, NUM_VIRTUAL_PADS,
+			I18NCat::CONTROLS, screenManager()));
+		padChoice->OnChoice.Handle(this, &ControlMappingScreen::OnPadChanged);
+	}
 }
 
 std::string_view ControlMappingScreen::GetTitle() const {
@@ -263,6 +302,7 @@ void ControlMappingScreen::CreateContentViews(UI::ViewGroup *parent) {
 	const KeyMap::KeyMap_IntStrPair *mappableKeys = KeyMap::GetMappableKeys(&numMappableKeys);
 
 	auto km = GetI18NCategory(I18NCat::KEYMAPPING);
+	auto co = GetI18NCategory(I18NCat::CONTROLS);
 
 	bool portrait = GetDeviceOrientation() == DeviceOrientation::Portrait;
 
@@ -298,6 +338,10 @@ void ControlMappingScreen::update() {
 	UIBaseDialogScreen::update();
 	SetVRAppMode(VRAppMode::VR_MENU_MODE);
 }
+void ControlMappingScreen::OnPadChanged(UI::EventParams &e) {
+	RecreateViews();
+}
+
 
 void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
 	std::vector<std::string> items;
@@ -491,7 +535,7 @@ AnalogCalibrationScreen::~AnalogCalibrationScreen() {
 	g_controlMapper.RemoveListener(this);
 }
 
-void AnalogCalibrationScreen::SetPSPAnalog(int rotation, int stick, float x, float y) {
+void AnalogCalibrationScreen::SetPSPAnalog(int padIndex, int rotation, int stick, float x, float y) {
 	analogX_[stick] = x;
 	analogY_[stick] = y;
 }
@@ -975,7 +1019,10 @@ void VisualMappingScreen::OnBindAll(UI::EventParams &e) {
 }
 
 void VisualMappingScreen::HandleKeyMapping(const KeyMap::MultiInputMapping &key) {
-	KeyMap::SetInputMapping(nextKey_, key, replace_);
+	// Stamp the currently-selected virtual pad onto the binding before saving.
+	KeyMap::MultiInputMapping stamped = key;
+	stamped.padIndex = g_currentEditPad;
+	KeyMap::SetInputMapping(nextKey_, stamped, replace_);
 	KeyMap::UpdateNativeMenuKeys();
 
 	if (bindAll_ < 0) {

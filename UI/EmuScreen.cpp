@@ -121,15 +121,15 @@ static void AssertCancelCallback(const char *message, void *userdata) {
 }
 
 // Handles control rotation due to internal screen rotation.
-void EmuScreen::UpdatePSPButtons(uint32_t bitsToSet, uint32_t bitsToClear) {
+void EmuScreen::UpdatePSPButtons(int padIndex, uint32_t bitsToSet, uint32_t bitsToClear) {
 	if (!IsOnTop()) {
 		// Auto-release inputs
 		bitsToSet = 0;
 	}
-	__CtrlUpdateButtons(bitsToSet, bitsToClear);
+	__CtrlUpdateButtonsForPad(padIndex, bitsToSet, bitsToClear);
 }
 
-void EmuScreen::SetPSPAnalog(int iInternalScreenRotation, int stick, float x, float y) {
+void EmuScreen::SetPSPAnalog(int padIndex, int iInternalScreenRotation, int stick, float x, float y) {
 	if (!IsOnTop()) {
 		x = 0.0f;
 		y = 0.0f;
@@ -160,7 +160,7 @@ void EmuScreen::SetPSPAnalog(int iInternalScreenRotation, int stick, float x, fl
 	default:
 		break;
 	}
-	__CtrlSetAnalogXY(stick, x, y);
+	__CtrlSetAnalogXYForPad(padIndex, stick, x, y);
 }
 
 EmuScreen::EmuScreen(const Path &filename)

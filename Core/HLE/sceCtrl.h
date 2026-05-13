@@ -23,6 +23,11 @@ class PointerWrap;
 
 void Register_sceCtrl();
 
+
+// Number of "virtual" pads supported. Pad 0 is the real PSP pad used by sceCtrl HLE.
+// Pads 1..3 are exposed to the game ONLY via the virtual MMIO window at 0x0E000000
+// (see Memory::IsExtraPadAddress), for ROM-hack-driven local multiplayer.
+constexpr int NUM_VIRTUAL_PADS = 4;
 const int CTRL_STICK_LEFT = 0;
 // The actual PSP only has one, but HD remasters expose this, maybe also the emulator on the PSP/Vita.
 const int CTRL_STICK_RIGHT = 1;
@@ -74,6 +79,7 @@ void __CtrlVblank();
 // Clears and sets selected buttons. NOTE: Clearing happens first.
 void __CtrlUpdateButtons(u32 bitsToSet, u32 bitsToClear);
 
+void __CtrlUpdateButtonsForPad(int pad, u32 bitsToSet, u32 bitsToClear);
 // Call this to set the position of an analog stick, ideally when it changes.
 // X and Y values should be from -1 to 1, inclusive, in a square (no need to force to a circle.)
 // No deadzone filtering is done (but note that this applies to the actual PSP as well.)
@@ -81,6 +87,9 @@ void __CtrlSetAnalogXY(int stick, float x, float y);
 void __CtrlSetAnalogX(int stick, float x);
 void __CtrlSetAnalogY(int stick, float y);
 
+void __CtrlSetAnalogXYForPad(int pad, int stick, float x, float y);
+void __CtrlSetAnalogXForPad(int pad, int stick, float x);
+void __CtrlSetAnalogYForPad(int pad, int stick, float y);
 // Call this to enable rapid-fire.  This will cause buttons other than arrows to alternate.
 void __CtrlSetRapidFire(bool state, int interval);
 bool __CtrlGetRapidFire();

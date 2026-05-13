@@ -3,6 +3,7 @@
 #include "Common/Input/InputState.h"
 #include "Core/KeyMap.h"
 
+#include "Core/HLE/sceCtrl.h"   // NUM_VIRTUAL_PADS
 #include <functional>
 #include <cstring>
 #include <mutex>
@@ -16,8 +17,10 @@ public:
 	virtual ~ControlListener() = default;
 	virtual void OnVKey(VirtKey vkey, bool down) {}
 	virtual void OnVKeyAnalog(VirtKey vkey, float value) {}
-	virtual void UpdatePSPButtons(uint32_t buttonMask, uint32_t changedMask) {}
-	virtual void SetPSPAnalog(int rotation, int stick, float x, float y) {}
+	// padIndex: 0 for the real PSP pad (sceCtrl-visible), 1..NUM_VIRTUAL_PADS-1
+	// for the virtual extra pads mirrored at 0x0E000000.
+	virtual void UpdatePSPButtons(int padIndex, uint32_t buttonMask, uint32_t changedMask) {}
+	virtual void SetPSPAnalog(int padIndex, int rotation, int stick, float x, float y) {}
 	virtual void SetRawAnalog(int stick, float x, float y) {}
 };
 
@@ -69,8 +72,8 @@ private:
 	float MapAxisValue(float value, int vkId, const InputMapping &mapping, const InputMapping &changedMapping, bool *oppositeTouched);
 	void SwapMappingIfEnabled(uint32_t *vkey);
 
-	void SetPSPAxis(int deviceId, int stick, char axis, float value);
-	void UpdateAnalogOutput(int stick);
+	void SetPSPAxis(int deviceId, int padIndex, int stick, char axis, float value);
+	void UpdateAnalogOutput(int padIndex, int stick);
 
 	void onVKey(VirtKey vkey, bool down);
 	void onVKeyAnalog(int deviceId, VirtKey vkey, float value);
@@ -98,8 +101,10 @@ private:
 
 	int lastNonDeadzoneDeviceID_[2]{};
 
-	float history_[2][2]{};
-	float converted_[2][2]{};  // for debug display
+	// [padIndex][stick][X/Y]. Pad 0 is the real PSP pad; pads 1..3 are virtual
+	// (driven only by per-binding padIndex in MultiInputMapping).
+	float history_[NUM_VIRTUAL_PADS][2][2]{};
+	float converted_[NUM_VIRTUAL_PADS][2][2]{};  // for debug display
 
 	// Mappable auto-rotation. Useful for keyboard/dpad->analog in a few games.
 	bool autoRotatingAnalogCW_ = false;

@@ -77,8 +77,8 @@ protected:
 	// ControlListener implementations
 	void OnVKey(VirtKey virtualKeyCode, bool down) override;
 	void OnVKeyAnalog(VirtKey virtualKeyCode, float value) override;
-	void UpdatePSPButtons(uint32_t buttonMask, uint32_t changedMask) override;
-	void SetPSPAnalog(int rotation, int stick, float x, float y) override;
+	void UpdatePSPButtons(int padIndex, uint32_t buttonMask, uint32_t changedMask) override;
+	void SetPSPAnalog(int padIndex, int rotation, int stick, float x, float y) override;
 	ViewLayoutMode LayoutMode() const override;
 
 private:

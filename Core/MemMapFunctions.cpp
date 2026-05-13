@@ -44,6 +44,10 @@ const u8 *GetPointer(const u32 address) {
 	if ((address & 0x3E000000) == 0x08000000 || // RAM
 		(address & 0x3F800000) == 0x04000000 || // VRAM
 		(address & 0xBFFFC000) == 0x00010000 || // Scratchpad
+		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3 (writes overwritten next VBlank)
+		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3
+		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3
+		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3
 		((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize)) { // More RAM (remasters, etc.)
 		return GetPointerUnchecked(address);
 	} else {

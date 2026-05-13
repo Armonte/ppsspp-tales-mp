@@ -1030,6 +1030,9 @@ static const ConfigSetting controlSettings[] = {
 	ConfigSetting("AllowMappingCombos", SETTING(g_Config, bAllowMappingCombos), false, CfgFlag::DEFAULT),
 	ConfigSetting("StrictComboOrder", SETTING(g_Config, bStrictComboOrder), false, CfgFlag::DEFAULT),
 
+	ConfigSetting("EnableExtraPads", SETTING(g_Config, bEnableExtraPads), false, CfgFlag::PER_GAME),
+	ConfigSetting("ExtraPadBaseAddress", SETTING(g_Config, uExtraPadBaseAddress), (uint32_t)0x0E000000, CfgFlag::PER_GAME),
+
 	ConfigSetting("UseMouse", SETTING(g_Config, bMouseControl), false, CfgFlag::PER_GAME),
 	ConfigSetting("ConfineMap", SETTING(g_Config, bMouseConfine), false, CfgFlag::PER_GAME),
 	ConfigSetting("MouseSensitivity", SETTING(g_Config, fMouseSensitivity), 0.1f, CfgFlag::PER_GAME),

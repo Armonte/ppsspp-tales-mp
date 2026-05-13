@@ -148,15 +148,16 @@ void ConvertAnalogStick(float x, float y, float *outX, float *outY) {
 	*outY = Clamp(y / norm * mappedNorm, -1.0f, 1.0f);
 }
 
-void ControlMapper::SetPSPAxis(int device, int stick, char axis, float value) {
+void ControlMapper::SetPSPAxis(int device, int padIndex, int stick, char axis, float value) {
 	const int axisId = axis == 'X' ? 0 : 1;
 	if (stick != 0 && stick != 1) {
 		return;
 	}
 
+	if (padIndex < 0 || padIndex >= NUM_VIRTUAL_PADS) return;
 	float position[2];
-	position[0] = history_[stick][0];
-	position[1] = history_[stick][1];
+	position[0] = history_[padIndex][stick][0];
+	position[1] = history_[padIndex][stick][1];
 
 	position[axisId] = value;
 
@@ -182,23 +183,23 @@ void ControlMapper::SetPSPAxis(int device, int stick, char axis, float value) {
 	}
 
 	if (!ignore) {
-		history_[stick][axisId] = value;
+		history_[padIndex][stick][axisId] = value;
+		UpdateAnalogOutput(padIndex, stick);
 
-		UpdateAnalogOutput(stick);
 	}
 }
 
-void ControlMapper::UpdateAnalogOutput(int stick) {
+void ControlMapper::UpdateAnalogOutput(int padIndex, int stick) {
 	float x, y;
-	ConvertAnalogStick(history_[stick][0], history_[stick][1], &x, &y);
+	ConvertAnalogStick(history_[padIndex][stick][0], history_[padIndex][stick][1], &x, &y);
 	if (virtKeyOn_[VIRTKEY_ANALOG_LIGHTLY - VIRTKEY_FIRST]) {
 		x *= g_Config.fAnalogLimiterDeadzone;
 		y *= g_Config.fAnalogLimiterDeadzone;
 	}
-	converted_[stick][0] = x;
-	converted_[stick][1] = y;
+	converted_[padIndex][stick][0] = x;
+	converted_[padIndex][stick][1] = y;
 	for (auto listener : listeners_) {
-		listener->SetPSPAnalog(iInternalScreenRotationCached_, stick, x, y);
+		listener->SetPSPAnalog(padIndex, iInternalScreenRotationCached_, stick, x, y);
 	}
 }
 
@@ -354,9 +355,9 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 	case ROTATION_LOCKED_VERTICAL180:   rotations = 3; break;
 	}
 
-	// For the PSP's digital button inputs, we just go through and put the flags together.
-	uint32_t buttonMask = 0;
-	uint32_t changedButtonMask = 0;
+	// Per-pad button accumulators. Pad 0 is the real PSP, 1..3 are virtual.
+	uint32_t buttonMask[NUM_VIRTUAL_PADS] = {};
+	uint32_t changedButtonMask[NUM_VIRTUAL_PADS] = {};
 	std::vector<MultiInputMapping> inputMappings;
 	for (int i = 0; i < 32; i++) {
 		uint32_t mask = 1 << i;
@@ -376,9 +377,11 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 
 		// If a mapping could consist of a combo, we could trivially check it here.
 		for (auto &multiMapping : inputMappings) {
+			int pad = multiMapping.padIndex;
+			if (pad < 0 || pad >= NUM_VIRTUAL_PADS) continue;
 			// Check if the changed mapping was involved in this PSP key.
 			if (multiMapping.mappings.contains(changedMapping)) {
-				changedButtonMask |= mask;
+				changedButtonMask[pad] |= mask;
 			}
 			// Check if all inputs are "on".
 			bool all = true;
@@ -400,18 +403,24 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 				if (!down)
 					all = false;
 			}
-			if (all) {
-				buttonMask |= mask;
-			}
+			if (all) buttonMask[pad] |= mask;
 		}
 	}
 
 	// We only request changing the buttons where the mapped input was involved.
-	for (auto listener : listeners_) {
-		listener->UpdatePSPButtons(buttonMask & changedButtonMask, (~buttonMask) & changedButtonMask);
+	for (int p = 0; p < NUM_VIRTUAL_PADS; ++p) {
+		if (!changedButtonMask[p]) continue;
+		for (auto listener : listeners_) {
+			listener->UpdatePSPButtons(p,
+				buttonMask[p] & changedButtonMask[p],
+				(~buttonMask[p]) & changedButtonMask[p]);
+		}
 	}
 
-	bool keyInputUsed = changedButtonMask != 0;
+	bool keyInputUsed = false;
+	for (int p = 0; p < NUM_VIRTUAL_PADS; ++p) {
+		if (changedButtonMask[p]) { keyInputUsed = true; break; }
+	}
 	bool updateAnalogSticks = false;
 
 	// OK, handle all the virtual keys next. For these we need to do deltas here and send events.
@@ -432,6 +441,9 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 		bool touchedByMapping = false;
 		float value = 0.0f;
 		for (auto &multiMapping : inputMappings) {
+			int pad = multiMapping.padIndex;
+			if (pad < 0 || pad >= NUM_VIRTUAL_PADS) continue;
+
 			if (multiMapping.mappings.contains(changedMapping)) {
 				touchedByMapping = true;
 			}
@@ -527,8 +539,8 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 
 	if (updateAnalogSticks) {
 		// If "lightly" (analog limiter) was toggled, we need to update both computed stick outputs.
-		UpdateAnalogOutput(0);
-		UpdateAnalogOutput(1);
+		UpdateAnalogOutput(0, 0);
+		UpdateAnalogOutput(0, 1);
 	}
 
 	return keyInputUsed;
@@ -575,7 +587,8 @@ void ControlMapper::ToggleSwapAxes() {
 
 void ControlMapper::UpdateSwapAxes() {
 	for (auto listener : listeners_) {
-		listener->UpdatePSPButtons(0, CTRL_LEFT | CTRL_RIGHT | CTRL_UP | CTRL_DOWN);
+		// (padIndex, set, clear) — was (set=0, clear=mask); now pad 0 only.
+		listener->UpdatePSPButtons(0, 0, CTRL_LEFT | CTRL_RIGHT | CTRL_UP | CTRL_DOWN);
 	}
 
 	for (VirtKey vkey = VIRTKEY_FIRST; vkey < VIRTKEY_LAST; vkey = (VirtKey)(vkey + 1)) {
@@ -595,11 +608,11 @@ void ControlMapper::UpdateSwapAxes() {
 		}
 	}
 
-	history_[0][0] = 0.0f;
-	history_[0][1] = 0.0f;
+	history_[0][0][0] = 0.0f;
+	history_[0][0][1] = 0.0f;
 
-	UpdateAnalogOutput(0);
-	UpdateAnalogOutput(1);
+	UpdateAnalogOutput(0, 0);
+	UpdateAnalogOutput(0, 1);
 }
 
 void ControlMapper::UpdateCurInputAxis(const InputMapping &mapping, float value, double timestamp) {
@@ -662,14 +675,14 @@ void ControlMapper::UpdateAutoMovements(double now) {
 		float y = std::min(1.0f, std::max(-1.0f, 1.42f * (float)sin(now * -g_Config.fAnalogAutoRotSpeed)));
 
 		for (auto listener : listeners_) {
-			listener->SetPSPAnalog(iInternalScreenRotationCached_, 0, x, y);
+			listener->SetPSPAnalog(0, iInternalScreenRotationCached_, 0, x, y);
 		}
 	} else if (autoRotatingAnalogCCW_) {
 		float x = std::min(1.0f, std::max(-1.0f, 1.42f * (float)cos(now * g_Config.fAnalogAutoRotSpeed)));
 		float y = std::min(1.0f, std::max(-1.0f, 1.42f * (float)sin(now * g_Config.fAnalogAutoRotSpeed)));
 
 		for (auto listener : listeners_) {
-			listener->SetPSPAnalog(iInternalScreenRotationCached_, 0, x, y);
+			listener->SetPSPAnalog(0, iInternalScreenRotationCached_, 0, x, y);
 		}
 	}
 }
@@ -692,11 +705,11 @@ void ControlMapper::PSPKey(int deviceId, int pspKeyCode, KeyInputFlags flags) {
 		// INFO_LOG(Log::System, "pspKey %d %d", pspKeyCode, flags);
 		if (flags & KeyInputFlags::DOWN)
 			for (auto listener : listeners_) {
-				listener->UpdatePSPButtons(pspKeyCode, 0);
+				listener->UpdatePSPButtons(0, pspKeyCode, 0);
 			}
 		if (flags & KeyInputFlags::UP)
 			for (auto listener : listeners_) {
-				listener->UpdatePSPButtons(0, pspKeyCode);
+				listener->UpdatePSPButtons(0, 0, pspKeyCode);
 			}
 	}
 }
@@ -730,7 +743,8 @@ void ControlMapper::onVKeyAnalog(int deviceId, VirtKey vkey, float value) {
 			// NOTICE_LOG(Log::sceCtrl, "Reducing %f by %f (from %08x : %s)", value, oppVal, oppositeVKey, KeyMap::GetPspButtonName(oppositeVKey).c_str());
 		}
 	}
-	SetPSPAxis(deviceId, stick, axis, sign * value);
+	// Virtkey-driven analog only ever drives pad 0. Pad N analog support is a follow-up.
+	SetPSPAxis(deviceId, 0, stick, axis, sign * value);
 }
 
 void ControlMapper::onVKey(VirtKey vkey, bool down) {
@@ -742,7 +756,7 @@ void ControlMapper::onVKey(VirtKey vkey, bool down) {
 		} else {
 			autoRotatingAnalogCW_ = false;
 			for (auto listener : listeners_) {
-				listener->SetPSPAnalog(iInternalScreenRotationCached_, 0, 0.0f, 0.0f);
+				listener->SetPSPAnalog(0, iInternalScreenRotationCached_, 0, 0.0f, 0.0f);
 			}
 		}
 		break;
@@ -753,7 +767,7 @@ void ControlMapper::onVKey(VirtKey vkey, bool down) {
 		} else {
 			autoRotatingAnalogCCW_ = false;
 			for (auto listener : listeners_) {
-				listener->SetPSPAnalog(iInternalScreenRotationCached_, 0, 0.0f, 0.0f);
+				listener->SetPSPAnalog(0, iInternalScreenRotationCached_, 0, 0.0f, 0.0f);
 			}
 		}
 		break;
@@ -778,7 +792,7 @@ void ControlMapper::GetDebugString(char *buffer, size_t bufSize) const {
 			str << KeyMap::GetPspButtonName(vkId) << ": " << virtKeys_[i] << std::endl;
 		}
 	}
-	str << "Lstick: " << converted_[0][0] << ", " << converted_[0][1] << std::endl;
+	str << "Lstick: " << converted_[0][0][0] << ", " << converted_[0][0][1] << std::endl;
 	truncate_cpy(buffer, bufSize, str.str().c_str());
 }
 

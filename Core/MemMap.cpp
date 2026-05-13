@@ -46,6 +46,12 @@ namespace Memory {
 // The base pointer to the auto-mirrored arena.
 u8* base = nullptr;
 
+
+// Backing storage for the virtual MMIO pad window. Always allocated (4KB), so
+// JIT-compiled MIPS loads from 0x0E000000 always land on a valid host page.
+// The per-VBlank mirror that actually publishes pad state is gated on
+// g_Config.bEnableExtraPads in sceCtrl.cpp::__CtrlUpdateLatch.
+u8  *m_pExtraPadMMIO = nullptr;
 // The MemArena class
 MemArena g_arena;
 // ==============
@@ -110,6 +116,10 @@ static MemoryView views[] = {
 	{&m_pKernelRAM[2],        0x8BE00000, g_MemorySize, MV_MIRROR_PREVIOUS | MV_IS_EXTRA2_RAM | MV_KERNEL},
 	{&m_pUncachedKernelRAM[2],0xCBE00000, g_MemorySize, MV_MIRROR_PREVIOUS | MV_IS_EXTRA2_RAM | MV_KERNEL},
 
+
+	// "Virtual MMIO" for extra pads 1..3. Always allocated; the per-VBlank
+	// mirror writer in sceCtrl.cpp is what's actually gated by config.
+	{&m_pExtraPadMMIO,        EXTRA_PAD_BASE, EXTRA_PAD_SIZE, 0},
 	// TODO: There are a few swizzled mirrors of VRAM, not sure about the best way to
 	// implement those.
 };

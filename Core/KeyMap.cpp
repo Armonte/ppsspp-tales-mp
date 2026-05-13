@@ -1025,6 +1025,21 @@ bool HasChanged(int &prevGeneration) {
 
 MultiInputMapping MultiInputMapping::FromConfigString(std::string_view str) {
 	MultiInputMapping out;
+	// Optional pad-index suffix: "...@pN" at end. Backward compat: omitted = pad 0.
+	size_t at = str.rfind('@');
+	if (at != std::string_view::npos && at + 2 < str.size() && str[at + 1] == 'p') {
+		int pad = 0;
+		bool ok = true;
+		for (size_t i = at + 2; i < str.size(); ++i) {
+			char c = str[i];
+			if (c < '0' || c > '9') { ok = false; break; }
+			pad = pad * 10 + (c - '0');
+		}
+		if (ok && pad >= 0 && pad < 16) {
+			out.padIndex = pad;
+			str = str.substr(0, at);
+		}
+	}
 	std::vector<std::string_view> parts;
 	SplitString(str, ':', parts);
 	for (auto iter : parts) {
@@ -1038,7 +1053,11 @@ std::string MultiInputMapping::ToConfigString() const {
 	for (auto iter : mappings) {
 		out += iter.ToConfigString() + ":";
 	}
-	out.pop_back();  // remove the last ':'
+	if (!out.empty()) out.pop_back();  // remove the last ':'
+	if (padIndex != 0) {
+		out += "@p";
+		out += std::to_string(padIndex);
+	}
 	return out;
 }
 
@@ -1052,6 +1071,9 @@ std::string MultiInputMapping::ToVisualString() const {
 		out.pop_back();
 		out.pop_back();
 		out.pop_back();
+	}
+	if (padIndex != 0) {
+		out += " [P" + std::to_string(padIndex + 1) + "]";
 	}
 	return out;
 }

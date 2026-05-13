@@ -963,6 +963,11 @@ void GameSettingsScreen::CreateControlsSettings(UI::ViewGroup *controlsSettings)
 			smoothingSlider->SetLiveUpdate(true);
 		}
 	}
+
+	controlsSettings->Add(new ItemHeader(co->T("Virtual Extra Pads (advanced)")));
+	CheckBox *extraPads = controlsSettings->Add(new CheckBox(&g_Config.bEnableExtraPads,
+		co->T("Enable virtual pads 2-4 (MMIO @ 0x0E000000)")));
+	extraPads->SetEnabled(!PSP_IsInited());
 }
 
 // Compound view just like the audio file choosers

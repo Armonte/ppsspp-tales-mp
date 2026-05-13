@@ -526,6 +526,13 @@ public:
 	bool bAllowMappingCombos;
 	bool bStrictComboOrder;
 
+	// Virtual extra pads: exposes pads 2-4 to the game via a virtual MMIO window
+	// at uExtraPadBaseAddress (default 0x0E000000) for ROM-hack-driven local
+	// multiplayer. The 4KB window is always allocated; this toggle just gates
+	// the per-VBlank mirror that publishes pad state into it.
+	bool bEnableExtraPads = false;
+	uint32_t uExtraPadBaseAddress = 0x0E000000;
+
 	bool bMouseControl;
 	bool bMouseConfine; // Trap inside the window.
 	float fMouseSensitivity;

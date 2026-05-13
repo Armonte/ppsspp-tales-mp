@@ -63,6 +63,14 @@ namespace Memory {
 extern u8 *base; 
 
 // This replaces RAM_NORMAL_SIZE at runtime.
+// Virtual MMIO buffer for pads 2-4 ("extra pads"). Always allocated (4KB) so
+// stray reads from ROM hacks safely return zero. The per-VBlank mirror that
+// actually copies pad state in is gated on g_Config.bEnableExtraPads in
+// Core/HLE/sceCtrl.cpp. Layout: pad i at offset i * sizeof(CtrlData) (16B).
+extern u8 *m_pExtraPadMMIO;
+constexpr u32 EXTRA_PAD_BASE = 0x0E000000;
+constexpr u32 EXTRA_PAD_SIZE = 0x00001000;  // 4KB, one page
+
 extern u32 g_MemorySize;
 extern u32 g_PSPModel;
 
@@ -293,6 +301,12 @@ inline void MemcpyUnchecked(const u32 to_address, const u32 from_address, const 
 	MemcpyUnchecked(GetPointerWriteUnchecked(to_address), from_address, len);
 }
 
+// Address-only check: the view is always allocated, so any access in this range
+// hits a real host page regardless of whether bEnableExtraPads is on.
+inline bool IsExtraPadAddress(const u32 address) {
+	return (address & 0x3FFFFF00) == EXTRA_PAD_BASE;
+}
+
 inline bool IsValidAddress(const u32 address) {
 	if ((address & 0x3E000000) == 0x08000000) {
 		return true;
@@ -302,10 +316,13 @@ inline bool IsValidAddress(const u32 address) {
 		return true;
 	} else if ((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize) {
 		return true;
+	} else if (IsExtraPadAddress(address)) {
+		return true;
 	} else {
 		return false;
 	}
 }
+
 
 inline bool IsValid4AlignedAddress(const u32 address) {
 	if ((address & 0x3E000003) == 0x08000000) {
@@ -315,6 +332,8 @@ inline bool IsValid4AlignedAddress(const u32 address) {
 	} else if ((address & 0xBFFFC003) == 0x00010000) {
 		return true;
 	} else if ((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize) {
+		return (address & 3) == 0;
+	} else if (IsExtraPadAddress(address)) {
 		return (address & 3) == 0;
 	} else {
 		return false;
@@ -334,6 +353,8 @@ inline u32 MaxSizeAtAddress(const u32 address){
 		return 0x00014000 - (address & 0x3FFFFFFF);
 	} else if ((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize) {
 		return 0x08000000 + g_MemorySize - (address & 0x3FFFFFFF);
+	} else if (IsExtraPadAddress(address)) {
+		return (EXTRA_PAD_BASE + EXTRA_PAD_SIZE) - (address & 0x3FFFFFFF);
 	} else {
 		return 0;
 	}
