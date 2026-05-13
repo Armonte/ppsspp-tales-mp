@@ -21,7 +21,9 @@
 
 #if !PPSSPP_PLATFORM(UWP)
 
-#ifndef __MINGW32__
+// Neither MSVC SDK nor mingw provide XINPUT_CAPABILITIES_EX as a typedef.
+// (PPSSPP previously gated this on !__MINGW32__ but mingw doesn't actually
+// supply the type either.)
 struct XINPUT_CAPABILITIES_EX {
 	XINPUT_CAPABILITIES Capabilities;
 	WORD VendorId;
@@ -30,20 +32,9 @@ struct XINPUT_CAPABILITIES_EX {
 	WORD  unk1;
 	DWORD unk2;
 };
-#endif
 
 typedef DWORD (WINAPI *XInputGetState_t) (DWORD dwUserIndex, XINPUT_STATE* pState);
 typedef DWORD (WINAPI *XInputSetState_t) (DWORD dwUserIndex, XINPUT_VIBRATION* pVibration);
-#ifndef XINPUT_CAPABILITIES_EX
-typedef struct _XINPUT_CAPABILITIES_EX {
-    XINPUT_CAPABILITIES Capabilities;
-    WORD VendorId;
-    WORD ProductId;
-    WORD VersionNumber;
-    WORD unk1;
-    DWORD unk2;
-} XINPUT_CAPABILITIES_EX;
-#endif
 typedef DWORD (WINAPI *XInputGetCapabilitiesEx_t) (DWORD unknown, DWORD dwUserIndex, DWORD flags, XINPUT_CAPABILITIES_EX *pCapabilities);
 
 static XInputGetState_t PPSSPP_XInputGetState = nullptr;
