@@ -52,6 +52,11 @@ AddressSpace g_mainSpace;
 bool g_kernelModeAnywhere = false;
 static const size_t BLOCK_SHADOW_SIZE = (size_t)BLOCK_SHADOW_MASK + 1;
 
+// Backing storage for the virtual MMIO pad window. Always allocated (4KB), so
+// JIT-compiled MIPS loads from 0x0E000000 always land on a valid host page.
+// The per-VBlank mirror that actually publishes pad state is gated on
+// g_Config.bEnableExtraPads in sceCtrl.cpp::__CtrlUpdateLatch.
+u8  *m_pExtraPadMMIO = nullptr;
 // The MemArena class
 MemArena g_arena;
 // ==============
@@ -177,6 +182,10 @@ static MemoryView views[] = {
 	// Last, so the views before keep their offsets aligned to the host's pages.
 	{&m_pBootPage,            BOOT_PAGE_ADDRESS, BOOT_PAGE_SIZE, MV_BOOT_PAGE},
 
+
+	// "Virtual MMIO" for extra pads 1..3. Always allocated; the per-VBlank
+	// mirror writer in sceCtrl.cpp is what's actually gated by config.
+	{&m_pExtraPadMMIO,        EXTRA_PAD_BASE, EXTRA_PAD_SIZE, 0},
 	// TODO: There are a few swizzled mirrors of VRAM, not sure about the best way to
 	// implement those.
 };

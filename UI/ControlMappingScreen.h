@@ -56,6 +56,7 @@ protected:
 
 private:
 	void OnAutoConfigure(UI::EventParams &params);
+	void OnPadChanged(UI::EventParams &e);
 
 	std::vector<SingleControlMapper *> mappers_;
 	int keyMapGeneration_ = -1;
@@ -146,7 +147,7 @@ protected:
 	void CreateSettingsViews(UI::ViewGroup *parent) override;
 	void CreateContentViews(UI::ViewGroup *parent) override;
 
-	void SetPSPAnalog(int rotation, int stick, float x, float y) override;
+	void SetPSPAnalog(int padIndex, int rotation, int stick, float x, float y) override;
 	void SetRawAnalog(int stick, float x, float y) override;
 
 	std::string_view GetTitle() const override;

@@ -35,6 +35,8 @@
 #include "Core/HW/Display.h"
 #include "Core/System.h"
 #include "Core/MemMapHelpers.h"
+#include "Core/MemMap.h"
+#include "Core/Config.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/Replay.h"
 #include "Core/Util/AudioFormat.h"  // for clamp_u8
@@ -78,7 +80,9 @@ static int ctrlLatchBufs = 0;
 static u32 ctrlOldButtons = 0;
 
 static CtrlData ctrlBufs[NUM_CTRL_BUFFERS];
-static CtrlData ctrlCurrent;
+// Pad 0 is the real PSP pad. Pads 1..NUM_VIRTUAL_PADS-1 are mirrored into the
+// virtual MMIO window at 0x0E000000 each VBlank for ROM-hack-driven multiplayer.
+static CtrlData ctrlCurrent[NUM_VIRTUAL_PADS];
 static u32 ctrlBuf = 0;
 static u32 ctrlBufRead = 0;
 static CtrlLatch latch;
@@ -122,14 +126,14 @@ static void __CtrlUpdateLatch()
 	std::lock_guard<std::mutex> guard(ctrlMutex);
 	u64 t = CoreTiming::GetGlobalTimeUs();
 
-	u32 buttons = ctrlCurrent.buttons;
+	u32 buttons = ctrlCurrent[0].buttons;
 	if (emuRapidFire && emuRapidFireToggle)
 		buttons &= CTRL_EMU_RAPIDFIRE_MASK;
 
-	ReplayApplyCtrl(buttons, ctrlCurrent.analog, t);
+	ReplayApplyCtrl(buttons, ctrlCurrent[0].analog, t);
 
 	// Copy in the current data to the current buffer.
-	ctrlBufs[ctrlBuf] = ctrlCurrent;
+	ctrlBufs[ctrlBuf] = ctrlCurrent[0];
 
 	if (PSP_CoreParameter().compat.flags().DaxterRotatedAnalogStick) {
 		// For some reason, Daxter rotates the analog input. See #17015
@@ -165,6 +169,25 @@ static void __CtrlUpdateLatch()
 	if (!analogEnabled)
 		memset(ctrlBufs[ctrlBuf].analog, CTRL_ANALOG_CENTER, sizeof(ctrlBufs[ctrlBuf].analog));
 
+	// Mirror all virtual pads into the virtual MMIO window so ROM hacks can read
+	// pads 1..3 directly from PSP memory. The view itself is always allocated
+	// (so misbehaving hacks just read zeros instead of segfaulting), but we only
+	// pay the per-VBlank copy cost when the feature is on.
+	if (g_Config.bEnableExtraPads && Memory::m_pExtraPadMMIO) {
+		for (int i = 0; i < NUM_VIRTUAL_PADS; ++i) {
+			CtrlData snap = ctrlCurrent[i];
+			snap.frame = (u32)t;
+			if (i != 0) {
+				// Pad 0 ran through ReplayApplyCtrl and the Daxter compat hack above;
+				// pads 1..3 are passed through raw, just masked to user-visible bits.
+				snap.buttons &= CTRL_MASK_USER;
+				if (!analogEnabled)
+					memset(snap.analog, CTRL_ANALOG_CENTER, sizeof(snap.analog));
+			}
+			memcpy(Memory::m_pExtraPadMMIO + i * sizeof(CtrlData), &snap, sizeof(CtrlData));
+		}
+	}
+
 	ctrlBuf = (ctrlBuf + 1) % NUM_CTRL_BUFFERS;
 
 	// If we wrapped around, push the read head forward.
@@ -193,7 +216,7 @@ u32 __CtrlPeekButtons()
 {
 	std::lock_guard<std::mutex> guard(ctrlMutex);
 
-	return ctrlCurrent.buttons;
+	return ctrlCurrent[0].buttons;
 }
 
 u32 __CtrlPeekButtonsVisual()
@@ -201,7 +224,7 @@ u32 __CtrlPeekButtonsVisual()
 	u32 buttons;
 	{
 		std::lock_guard<std::mutex> guard(ctrlMutex);
-		buttons = ctrlCurrent.buttons;
+		buttons = ctrlCurrent[0].buttons;
 	}
 
 	if (emuRapidFire && emuRapidFireToggle)
@@ -213,8 +236,8 @@ void __CtrlPeekAnalog(int stick, float *x, float *y)
 {
 	std::lock_guard<std::mutex> guard(ctrlMutex);
 
-	*x = (ctrlCurrent.analog[stick][CTRL_ANALOG_X] - 127.5f) / 127.5f;
-	*y = -(ctrlCurrent.analog[stick][CTRL_ANALOG_Y] - 127.5f) / 127.5f;
+	*x = (ctrlCurrent[0].analog[stick][CTRL_ANALOG_X] - 127.5f) / 127.5f;
+	*y = -(ctrlCurrent[0].analog[stick][CTRL_ANALOG_Y] - 127.5f) / 127.5f;
 }
 
 
@@ -239,7 +262,7 @@ static int nextTimedPressId = 1;
 int __CtrlPressFor(u32 buttons, int vblanks) {
 	std::lock_guard<std::mutex> guard(ctrlMutex);
 	buttons &= CTRL_MASK_USER;
-	ctrlCurrent.buttons |= buttons;
+	ctrlCurrent[0].buttons |= buttons;
 	const int id = nextTimedPressId++;
 	timedPresses.push_back(TimedPress{ id, buttons, std::max(vblanks, 1) });
 	return id;
@@ -274,41 +297,66 @@ static void __CtrlUpdateTimedPresses() {
 	for (const TimedPress &press : timedPresses) {
 		released &= ~press.buttons;
 	}
-	ctrlCurrent.buttons &= ~released;
+	ctrlCurrent[0].buttons &= ~released;
 }
 
-void __CtrlUpdateButtons(u32 bitsToSet, u32 bitsToClear)
+void __CtrlUpdateButtonsForPad(int pad, u32 bitsToSet, u32 bitsToClear)
 {
+	if (pad < 0 || pad >= NUM_VIRTUAL_PADS)
+		return;
 	bitsToClear &= CTRL_MASK_USER;
 	bitsToSet &= CTRL_MASK_USER;
 
 	std::lock_guard<std::mutex> guard(ctrlMutex);
 	// There's no atomic operation for this, so mutex it is.
-	ctrlCurrent.buttons = (ctrlCurrent.buttons & ~bitsToClear) | bitsToSet;
+	ctrlCurrent[pad].buttons = (ctrlCurrent[pad].buttons & ~bitsToClear) | bitsToSet;
+}
+
+void __CtrlUpdateButtons(u32 bitsToSet, u32 bitsToClear)
+{
+	__CtrlUpdateButtonsForPad(0, bitsToSet, bitsToClear);
+}
+
+void __CtrlSetAnalogXYForPad(int pad, int stick, float x, float y)
+{
+	if (pad < 0 || pad >= NUM_VIRTUAL_PADS)
+		return;
+	u8 scaledX = clamp_u8((int)ceilf(x * 127.5f + 127.5f));
+	u8 scaledY = clamp_u8((int)ceilf(-y * 127.5f + 127.5f));
+
+	std::lock_guard<std::mutex> guard(ctrlMutex);
+	ctrlCurrent[pad].analog[stick][CTRL_ANALOG_X] = scaledX;
+	ctrlCurrent[pad].analog[stick][CTRL_ANALOG_Y] = scaledY;
 }
 
 void __CtrlSetAnalogXY(int stick, float x, float y)
 {
-	u8 scaledX = clamp_u8((int)ceilf(x * 127.5f + 127.5f));
-	// TODO: We might have too many negations of Y...
-	u8 scaledY = clamp_u8((int)ceilf(-y * 127.5f + 127.5f));
-
-	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.analog[stick][CTRL_ANALOG_X] = scaledX;
-	ctrlCurrent.analog[stick][CTRL_ANALOG_Y] = scaledY;
+	__CtrlSetAnalogXYForPad(0, stick, x, y);
 }
 
 // not making XY to use these due to mutex guard usage
-void __CtrlSetAnalogX(int stick, float x) {
+void __CtrlSetAnalogXForPad(int pad, int stick, float x) {
+	if (pad < 0 || pad >= NUM_VIRTUAL_PADS)
+		return;
 	u8 scaledX = clamp_u8((int)ceilf(x * 127.5f + 127.5f));
 	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.analog[stick][CTRL_ANALOG_X] = scaledX;
+	ctrlCurrent[pad].analog[stick][CTRL_ANALOG_X] = scaledX;
+}
+
+void __CtrlSetAnalogX(int stick, float x) {
+	__CtrlSetAnalogXForPad(0, stick, x);
+}
+
+void __CtrlSetAnalogYForPad(int pad, int stick, float y) {
+	if (pad < 0 || pad >= NUM_VIRTUAL_PADS)
+		return;
+	u8 scaledY = clamp_u8((int)ceilf(-y * 127.5f + 127.5f));
+	std::lock_guard<std::mutex> guard(ctrlMutex);
+	ctrlCurrent[pad].analog[stick][CTRL_ANALOG_Y] = scaledY;
 }
 
 void __CtrlSetAnalogY(int stick, float y) {
-	u8 scaledY = clamp_u8((int)ceilf(-y * 127.5f + 127.5f));
-	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.analog[stick][CTRL_ANALOG_Y] = scaledY;
+	__CtrlSetAnalogYForPad(0, stick, y);
 }
 
 void __CtrlSetRapidFire(bool state, int interval) {
@@ -448,12 +496,14 @@ void __CtrlInit() {
 	latch.btnRelease = 0xffffffff;
 
 	gameInputBlocked = false;
-	memset(&ctrlCurrent, 0, sizeof(ctrlCurrent));
-	memset(ctrlCurrent.analog, CTRL_ANALOG_CENTER, sizeof(ctrlCurrent.analog));
+	memset(ctrlCurrent, 0, sizeof(ctrlCurrent));
+	for (int i = 0; i < NUM_VIRTUAL_PADS; ++i) {
+		memset(ctrlCurrent[i].analog, CTRL_ANALOG_CENTER, sizeof(ctrlCurrent[i].analog));
+	}
 	analogEnabled = false;
 
 	for (u32 i = 0; i < NUM_CTRL_BUFFERS; i++)
-		memcpy(&ctrlBufs[i], &ctrlCurrent, sizeof(CtrlData));
+		memcpy(&ctrlBufs[i], &ctrlCurrent[0], sizeof(CtrlData));
 }
 
 void __CtrlDoState(PointerWrap &p)

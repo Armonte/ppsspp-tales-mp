@@ -26,6 +26,7 @@
 #include "Common/UI/View.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
+#include "Core/System.h"
 #include "UI/ControlMappingScreen.h"
 #include "UI/GameSettingsScreen.h"
 #include "UI/SettingsPage.h"
@@ -158,4 +159,10 @@ void BuildControlsSettings(SettingsPage *page) {
 			page->Setting(&g_Config.fMouseSmoothing).Enabled(&g_Config.bMouseControl).LiveUpdate();
 		}
 	}
+
+	// The pad window is mapped when a game loads, so the toggle only takes effect from the next game.
+	page->Header({ I18NCat::CONTROLS, "Virtual Extra Pads", "Virtual Extra Pads (advanced)" });
+	page->Setting(&g_Config.bEnableExtraPads).EnabledFunc([] {
+		return !PSP_IsInited();
+	});
 }
