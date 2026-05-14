@@ -257,9 +257,11 @@ bool ApplyPatches() {
 		0x16390030,
 		// 24: nop
 		0x00000000,
-		// --- check coop_flag ---
-		// 28: lb    $t9, 0x627($s2)
-		0x82590627,
+		// --- check is_2nd_call flag (was: coop_flag). Only do the swap
+		//     setup for Mint during the outer wrapper's CALL 2 (pad-1
+		//     run). In CALL 1, skip swap so Mint doesn't read pad-0. ---
+		// 28: lw $t9, 0x624($t8)   ; is_2nd_call (set by outer wrapper)
+		0x8F190624,
 		// --- $s1==1 diag: bump counter @ 0x09F00504 ---
 		// 2c: lui   $t8, 0x09F0
 		0x3C1809F0,
@@ -333,11 +335,18 @@ bool ApplyPatches() {
 		0x3C1808A4,
 		// 6c: addiu $t8, $t8, 0xB7AC        ; signext → 0x08A3B7AC (held)
 		0x2718B7AC,
-		// 70: nop  (was: sw t9 → g_player_input.held; suppressed to avoid
+		// 70: sb $0, 0x627($s2)   ; Clear coop_flag = 0 BEFORE sub_42C18.
+		//                          This disables the per-frame Cless→Mint
+		//                          state syncs (7 coop_flag-gated copies)
+		//                          inside sub_42C18 that lock Mint's X to
+		//                          Cless's. Main hook will re-set coop_flag
+		//                          on each input_get_btn_make call inside
+		//                          sub_42C18, so the *first* coop checks
+		//                          (before any input read) see flag=0.
+		0xA2400627,
+		// 74: nop
 		0x00000000,
-		// 74: nop      polluting pad-0 data for Cless's subsequent ticks
-		0x00000000,
-		// 78: nop      in the same frame).
+		// 78: nop
 		0x00000000,
 		// 7c: jal   0x08846C18              ; sub_42C18
 		0x0E211B06,
