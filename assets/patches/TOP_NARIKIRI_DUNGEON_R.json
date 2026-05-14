@@ -568,12 +568,12 @@
           "asm": "0xb8: lw $a0, 4($sp)                ; $a0 = bs"
         },
         {
-          "hex": "0x2419000F",
-          "asm": "0xbc: addiu $t9, $0, 15            ; force bs->main_state = 15 (idle)"
+          "hex": "0x00000000",
+          "asm": "0xbc: nop  (was: force bs->main_state=0xF for CALL 2 idempotency, but u4ick clarified 0x0F = 'menu interaction active' — forcing it made the menu FSM run for Mell every frame, causing pad-1 attack to open Dio's menu. CALL 2 now inherits whatever main_state Dio's CALL 1 left.)"
         },
         {
-          "hex": "0xA09905ED",
-          "asm": "0xc0: sb $t9, 0x5ED($a0)            ; idempotent across both FSM passes"
+          "hex": "0x00000000",
+          "asm": "0xc0: nop  (was: sb $t9, 0x5ED($a0)  — see comment above. Reentrancy risk that originally drove this force has been mitigated by the PARTNER_TICK_NOPS in sub_3F194.)"
         },
         {
           "hex": "JAL_ABS:0x0880FCBC",
