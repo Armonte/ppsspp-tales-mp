@@ -244,16 +244,29 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 			headlessHost->SwapBuffers();
 			// Dump latest frame to disk if --dump-screenshot was set.
 			headlessHost->SendDebugScreenshot(nullptr, 0, 0);
-			// Auto-mash CIRCLE/CROSS/START every ~10 frames if requested.
+			// Auto-mash if requested. Tales title-screen uses exact-equal
+			// button checks (e.g. `== 0x2000` for CIRCLE), so we cycle each
+			// button alone with a release frame between presses:
+			//   phase 0: CIRCLE pressed   1: released
+			//   phase 2: CROSS  pressed   3: released
+			//   phase 4: START  pressed   5: released
+			//   phase 6: DOWN   pressed   7: released  (so menus advance even if cursor lands wrong)
 			if (opt.mashInput) {
 				static int mash_frame = 0;
-				const u32 mash_mask = 0x4000 | 0x2000 | 0x0008;  // CROSS | CIRCLE | START
-				const int phase = (mash_frame++ / 8) & 1;
-				if (phase) {
-					__CtrlUpdateButtons(mash_mask, 0);
-				} else {
-					__CtrlUpdateButtons(0, mash_mask);
+				const u32 all_mash_buttons = 0x4000 | 0x2000 | 0x0008 | 0x0040;
+				const int phase = (mash_frame++ / 6) % 8;  // ~10 Hz per button
+				u32 want = 0;
+				switch (phase) {
+					case 0: want = 0x2000; break;  // CIRCLE
+					case 2: want = 0x4000; break;  // CROSS
+					case 4: want = 0x0008; break;  // START
+					case 6: want = 0x0040; break;  // DOWN (menu advance)
+					default: break;                // release frames
 				}
+				if (want)
+					__CtrlUpdateButtons(want, all_mash_buttons & ~want);
+				else
+					__CtrlUpdateButtons(0, all_mash_buttons);
 				// Periodically copy the current dump to a snapshot-N.bmp file.
 				// 60 frames ~= 1 second of in-game time. Every 300 frames = 5s.
 				if ((mash_frame % 300) == 0 && headlessHost) {
