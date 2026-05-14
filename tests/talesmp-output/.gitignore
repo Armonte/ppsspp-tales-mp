@@ -3,5 +3,9 @@ run-*.log
 *.bmp
 mash-snap-*.png
 mash-final.png
+mash-60s.png
 last-frame.png
 per-pad-frame.png
+resumed.png
+# Save states are too big (~40MB each) — keep them out of git.
+states/*.ppst
