@@ -82,26 +82,108 @@ The plan:
 
 The other ~70 callers (`sub_FCBC` field menu, `sub_AD73C` shop UI, etc.) keep calling the pad-0 getter unchanged.
 
-## Next session: dynamic trace plan
+## Scene & battle architecture (DONE — static)
 
-Static analysis stalled out at the battle module — Tales LMBS dispatches through function-pointer tables loaded from `battle/character/character.dat`, so the per-character action driver is hard to find without runtime tracing. PPSSPP's built-in CPU debugger makes this trivial:
+The main game runs in `scene_main_loop` (`0xAB0`) with a `while(1) switch(current_scene)`:
 
-1. Boot Tales of Phantasia X in our patched PPSSPP (`PPSSPPSDL` or Windows build).
-2. Get into a battle (skip cutscenes; the very first encounter works).
-3. Open Debug → Disassembly (`Ctrl+D`).
-4. Set a breakpoint at `input_get_btn_make` (`0xe54d0` + `0x08804000` runtime base ≈ `0x08C674D0`).
-5. When the game wants the player to pick a command, the breakpoint fires.
-6. Open Debug → Call Stack. The frames above input_get_btn_make are:
-   - `f0` = `input_get_btn_make` itself
-   - `f1` = the immediate caller — almost certainly the **battle command UI** for the currently-active character
-   - `f2` = the **per-character update function** — this is the hook target for strategy A
-   - `f3` = the **battle main loop**
+| Scene | Function | Purpose |
+|-------|----------|---------|
+| 0 | `scene_logo` (0x0) | Bandai/Tales logos |
+| 1 | `scene_title` (0x4A4) | Title menu (6 options) |
+| 2 | `field_update_frame` (0x11A870) | Overworld + dungeons |
+| 3 | `sub_1081D4` | (unknown — maybe minigame / shop?) |
+| 4 | `battle_tick` + `battle_main_loop` | **Battle** |
+| 5,6 | misc | reboot, etc. |
 
-7. Note the `f2` address. Back in IDA, look at the parameter passed to `f2` — that's the character struct pointer. The character index is either a field of that struct or the loop variable in `f3`.
+**Battle scene 4 flow:**
+```
+case 4:
+    battle_tick()              // generic per-frame object update over 10 slots × 728B each
+    ...                        // session counters
+    state = battle_pick_outcome_state(&battle_state)  // runs ENTIRE battle
+    battle_exit_with_result(state)                    // post-battle cleanup
+```
 
-8. From there, modify `f2`'s input-reading branch to call our pad-N getter.
+`battle_main_loop` (`0x8D14`) is the per-battle `while(1)` — runs ~60Hz until end:
 
-A debug session of maybe 10 minutes nets all four addresses and the character-struct field layout. Static analysis would take hours to converge on the same answers because the dispatch is data-driven.
+```
+input_read_frame(state.vsync_count)
+battle_input_dispatch(state)     ; 12 KB state machine, where pad input dispatches actions
+battle_effects_update(state)
+battle_render()
+sceDisplayWaitVblank
+battle_character_action_run(state) ; small handler, only fires in state 24
+battle_state_update(state)         ; small handler, only fires in state 19
+break if state.end_flag set
+```
+
+### BattleState struct (partial)
+
+`battle_state` lives at runtime address (passed via pointer). Known fields:
+
+| Offset | Field | Meaning |
+|--------|-------|---------|
+| +1196  | `u32 vsync_count` | frames between updates |
+| +1216  | `u32 action_result` | last command's result |
+| +1220  | `u32 outcome` | victory/defeat code returned to caller |
+| +1516  | `u8 end_flag` | set to break the main loop |
+| +1517  | `u8 main_state` | state machine: 15=idle, 17=action, 19=cmd-select, 24=transition, 26=item |
+| +1524  | `u8 num_chars` | count of active party members |
+| +1528  | `u8 current_char_idx` | **who's being controlled this turn** ← key field for 2P |
+| +1534  | `u8 cmd_substate` | 1=normal, 2=item, 3=tech, 4=special |
+| +1538  | `u8 cmd_target` | target character/enemy index |
+| +1603  | `u8 cmd_action_target` | action's per-character flag |
+| +4032  | `Char* char_ptrs[]` | array of pointers to character structs |
+| +4132  | `void* action_obj` | currently executing action |
+
+### Where strategy A goes
+
+The 2P mod hook lives in **`battle_input_dispatch`** (`0xFCBC`, 12 KB). Every call inside that function to `input_get_btn_make` / `input_get_btn_press` / `input_get_btn_held` currently reads pad 0 via `g_player_input`. The fix is:
+
+1. Walk the 19+ input-read sites in `battle_input_dispatch`.
+2. At each site, determine which character this input is going to (likely a function-scope local set from `state->current_char_idx`, or an outer loop variable).
+3. Replace `input_get_btn_*(use_analog)` with `input_get_btn_*_for_pad(char_idx, use_analog)`, where the new getters read `(SceCtrlData *)(0x0E000000 + char_idx * 16)` and maintain per-pad edge masks.
+4. The state machine in `battle_input_dispatch` must be modified so it processes ALL active characters per frame instead of just `current_char_idx` — otherwise pads 2-8 only fire when their character has the turn. This is the hard part — the state machine likely assumes single-character-at-a-time.
+
+The state-machine refactor is the actual work. The input plumbing is mechanical.
+
+## Renamed in IDA (persisted)
+
+| Addr | Symbol |
+|------|--------|
+| `0x0` | `scene_logo` |
+| `0x4A4` | `scene_title` |
+| `0xAB0` | `scene_main_loop` |
+| `0x15C4` | `scene_transition_to` |
+| `0x15D0` | `scene_get_current` |
+| `0x15DC` | `scene_finish_frame` |
+| `0x2B40` | `battle_tick` |
+| `0x8D14` | `battle_main_loop` |
+| `0x909C` | `battle_character_action_run` |
+| `0xE54A0` | `input_get_btn_held` |
+| `0xE54D0` | `input_get_btn_make` |
+| `0xE5500` | `input_get_btn_press` |
+| `0xE5208` | `input_init` |
+| `0xE5290` | `input_read_frame` |
+| `0xFCBC` | `battle_input_dispatch` |
+| `0x11A870` | `field_update_frame` |
+| `0x11FA40` | `battle_exit_with_result` |
+| `0x12C94` | `battle_state_update` |
+| `0x14040` | `battle_effects_update` |
+| `0xF8B54` | `battle_render` |
+| `0x46303C` | `g_player_input` (struct applied) |
+
+Database persisted at `C:\dev\u4ick\psp\tales-re\EBOOT.elf.i64`.
+
+## Next session (dynamic trace, when ready)
+
+To confirm the static analysis and find any remaining gaps, run the game in our patched PPSSPP with the CPU debugger:
+
+1. Get into a battle.
+2. Set a breakpoint at `0xE54D0` (`input_get_btn_make`) — converted to runtime address: `0x08800000 + 0xE54D0 = 0x088E54D0`. (Or use PPSSPP's symbol search if it picks up our renamed symbols.)
+3. When the player goes to the command menu, the breakpoint fires.
+4. Open Call Stack. Confirm the path: `input_get_btn_make` ← `battle_input_dispatch` ← `battle_main_loop`. Look at the value of register `s0`/`s1` at the call site — it should be a pointer into `battle_state` or one of its char_ptrs[N].
+5. Step through `battle_input_dispatch` to find the actual line that reads `state.current_char_idx` and gates input to the corresponding character. That's the surgical patch point.
 
 ## Database state
 
