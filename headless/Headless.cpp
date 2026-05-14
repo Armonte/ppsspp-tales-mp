@@ -50,6 +50,7 @@
 #include "Common/Log/LogManager.h"
 
 #include "Compare.h"
+#include "Core/HLE/sceCtrl.h"
 #include "HeadlessHost.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
@@ -144,6 +145,7 @@ int printUsage(const char *progname, const char *reason)
 	fprintf(stderr, "                        options: gles, software, directx9, etc.\n");
 	fprintf(stderr, "  --screenshot=FILE     compare against a screenshot\n");
 	fprintf(stderr, "  --dump-screenshot=FILE save the final frame as a BMP\n");
+	fprintf(stderr, "  --mash                auto-press CIRCLE/CROSS/START to clear cutscenes\n");
 	fprintf(stderr, "  --max-mse=NUMBER      maximum allowed MSE error for screenshot\n");
 	fprintf(stderr, "  --timeout=SECONDS     abort test it if takes longer than SECONDS\n");
 
@@ -178,6 +180,7 @@ struct AutoTestOptions {
 	bool compare : 1;
 	bool verbose : 1;
 	bool bench : 1;
+	bool mashInput : 1;
 };
 
 bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const AutoTestOptions &opt) {
@@ -240,8 +243,26 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 			coreState = CORE_RUNNING_CPU;
 			headlessHost->SwapBuffers();
 			// Dump latest frame to disk if --dump-screenshot was set.
-			// SendDebugScreenshot internally checks dumpScreenshotPath_.
 			headlessHost->SendDebugScreenshot(nullptr, 0, 0);
+			// Auto-mash CIRCLE/CROSS/START every ~10 frames if requested.
+			if (opt.mashInput) {
+				static int mash_frame = 0;
+				const u32 mash_mask = 0x4000 | 0x2000 | 0x0008;  // CROSS | CIRCLE | START
+				const int phase = (mash_frame++ / 8) & 1;
+				if (phase) {
+					__CtrlUpdateButtons(mash_mask, 0);
+				} else {
+					__CtrlUpdateButtons(0, mash_mask);
+				}
+				// Periodically copy the current dump to a snapshot-N.bmp file.
+				// 60 frames ~= 1 second of in-game time. Every 300 frames = 5s.
+				if ((mash_frame % 300) == 0 && headlessHost) {
+					char fname[64];
+					snprintf(fname, sizeof(fname), "tests/talesmp-output/mash-snap-%04d.bmp", mash_frame / 60);
+					headlessHost->SetDumpScreenshot(Path(std::string(fname)));
+					headlessHost->SendDebugScreenshot(nullptr, 0, 0);
+				}
+			}
 		}
 		if (coreState == CORE_STEPPING_CPU && !coreParameter.startBreak) {
 			break;
@@ -442,6 +463,8 @@ int main(int argc, const char* argv[])
 			screenshotFilename = argv[i] + strlen("--screenshot=");
 		else if (!strncmp(argv[i], "--dump-screenshot=", strlen("--dump-screenshot=")) && strlen(argv[i]) > strlen("--dump-screenshot="))
 			dumpScreenshotFilename = argv[i] + strlen("--dump-screenshot=");
+		else if (!strcmp(argv[i], "--mash"))
+			testOptions.mashInput = true;
 		else if (!strncmp(argv[i], "--timeout=", strlen("--timeout=")) && strlen(argv[i]) > strlen("--timeout="))
 			testOptions.timeout = strtod(argv[i] + strlen("--timeout="), nullptr);
 		else if (!strncmp(argv[i], "--max-mse=", strlen("--max-mse=")) && strlen(argv[i]) > strlen("--max-mse="))
