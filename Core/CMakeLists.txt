@@ -543,8 +543,6 @@ add_library(Core STATIC
 	HLE/sceSircs.h
 	HLE/sceSsl.cpp
 	HLE/sceSsl.h
-	HLE/sceTalesMp.cpp
-	HLE/sceTalesMp.h
 	HLE/sceUmd.cpp
 	HLE/sceUmd.h
 	HLE/sceUsb.cpp
@@ -663,6 +661,8 @@ add_library(Core STATIC
 	MemFault.h
 	MemMap.cpp
 	MemMap.h
+	ModularPatch.cpp
+	ModularPatch.h
 	MemMapFunctions.cpp
 	MemMapHelpers.h
 	Opcode.h

@@ -56,7 +56,7 @@
 #include "Core/System.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/Plugins.h"
-#include "Core/HLE/sceTalesMp.h"
+#include "Core/ModularPatch.h"
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceUtility.h"
@@ -988,8 +988,10 @@ bool PSP_TakeBootRequest(BootRequest *request) {
 }
 
 void PSP_Shutdown(bool success) {
-	// Log TalesMp patch status before tearing the kernel down (RAM still mapped).
-	TalesMp::LogHookStatus();
+	// Log modular-patch status before tearing the kernel down (RAM still mapped).
+	if (ModularPatch::IsActive()) {
+		INFO_LOG(Log::Loader, "ModularPatch: '%s' was active this session", ModularPatch::ActiveName().c_str());
+	}
 
 	// Do nothing if we never inited.
 	if (g_bootState == BootState::Off) {
