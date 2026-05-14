@@ -1,6 +1,6 @@
 {
   "module_name_match": "TOP_NARIKIRI_DUNGEON_R",
-  "description": "Tales of Phantasia: Narikiri Dungeon X (NDX) \u2014 2P co-op patch. Pad-0 drives Cless, pad-1 drives Mint independently on X+Y. Disc UMD ULJS00293 ships TWO games sharing one disc-id, so we match by module-name only (TOP_NARIKIRI_DUNGEON_R) and skip the Phantasia X launcher / Phantasia X module.",
+  "description": "Tales of Phantasia: Narikiri Dungeon X (NDX) \u2014 2P co-op patch. Pad-0 drives Dio (P1), pad-1 drives Mell (P2) independently on X+Y. Disc UMD ULJS00293 ships TWO games sharing one disc-id (NDX and Tales of Phantasia X / TOP_PHANTASIA_R); we match by module-name only so this patch never fires on Phantasia X. NDX char_id enum (char+5 field): 0=Nothing, 1=Dio, 2=Mell, 3=Couleur, 4=Cress, 5=Mint, 6=Chester, 7=Arche, 8=Klarth, 9=Suzu, 10=Rondoline, 11=Monster. Slots can hold any of char_id 1\u201310 in any order (PCs + Narikiri summons + tamable monsters); char_id 11 marks an enemy. Up to 4 allied party slots, so party order is variable.",
   "load_base": "0x08804000",
   "payloads": [
     {
