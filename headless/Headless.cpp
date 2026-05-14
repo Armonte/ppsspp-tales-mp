@@ -143,6 +143,7 @@ int printUsage(const char *progname, const char *reason)
 	fprintf(stderr, "  --graphics=BACKEND    use a different gpu backend\n");
 	fprintf(stderr, "                        options: gles, software, directx9, etc.\n");
 	fprintf(stderr, "  --screenshot=FILE     compare against a screenshot\n");
+	fprintf(stderr, "  --dump-screenshot=FILE save the final frame as a BMP\n");
 	fprintf(stderr, "  --max-mse=NUMBER      maximum allowed MSE error for screenshot\n");
 	fprintf(stderr, "  --timeout=SECONDS     abort test it if takes longer than SECONDS\n");
 
@@ -238,6 +239,9 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 		if (coreState == CORE_NEXTFRAME) {
 			coreState = CORE_RUNNING_CPU;
 			headlessHost->SwapBuffers();
+			// Dump latest frame to disk if --dump-screenshot was set.
+			// SendDebugScreenshot internally checks dumpScreenshotPath_.
+			headlessHost->SendDebugScreenshot(nullptr, 0, 0);
 		}
 		if (coreState == CORE_STEPPING_CPU && !coreParameter.startBreak) {
 			break;
@@ -376,6 +380,7 @@ int main(int argc, const char* argv[])
 	const char *mountIso = nullptr;
 	const char *mountRoot = nullptr;
 	const char *screenshotFilename = nullptr;
+	const char *dumpScreenshotFilename = nullptr;
 
 	for (int i = 1; i < argc; i++)
 	{
@@ -435,6 +440,8 @@ int main(int argc, const char* argv[])
 #endif
 		} else if (!strncmp(argv[i], "--screenshot=", strlen("--screenshot=")) && strlen(argv[i]) > strlen("--screenshot="))
 			screenshotFilename = argv[i] + strlen("--screenshot=");
+		else if (!strncmp(argv[i], "--dump-screenshot=", strlen("--dump-screenshot=")) && strlen(argv[i]) > strlen("--dump-screenshot="))
+			dumpScreenshotFilename = argv[i] + strlen("--dump-screenshot=");
 		else if (!strncmp(argv[i], "--timeout=", strlen("--timeout=")) && strlen(argv[i]) > strlen("--timeout="))
 			testOptions.timeout = strtod(argv[i] + strlen("--timeout="), nullptr);
 		else if (!strncmp(argv[i], "--max-mse=", strlen("--max-mse=")) && strlen(argv[i]) > strlen("--max-mse="))
@@ -591,6 +598,8 @@ int main(int argc, const char* argv[])
 
 	if (screenshotFilename)
 		headlessHost->SetComparisonScreenshot(Path(std::string(screenshotFilename)), testOptions.maxScreenshotError);
+	if (dumpScreenshotFilename)
+		headlessHost->SetDumpScreenshot(Path(std::string(dumpScreenshotFilename)));
 	headlessHost->SetWriteFailureScreenshot(!teamCityMode && !getenv("GITHUB_ACTIONS") && !testOptions.bench);
 	headlessHost->SetWriteDebugOutput(!testOptions.compare && !testOptions.bench);
 

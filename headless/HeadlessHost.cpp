@@ -19,14 +19,15 @@
 #include "Common/Log.h"
 #include "Common/StringUtils.h"
 #include "Core/CoreParameter.h"
+#include "Core/Screenshot.h"
 #include "Core/System.h"
 #include "GPU/Common/GPUDebugInterface.h"
 #include "headless/Compare.h"
 #include "headless/HeadlessHost.h"
 
 void HeadlessHost::SendDebugScreenshot(const u8 *pixbuf, u32 w, u32 h) {
-	// Only if we're actually comparing.
-	if (comparisonScreenshot_.empty()) {
+	// Skip if neither comparison nor dump requested.
+	if (comparisonScreenshot_.empty() && dumpScreenshotPath_.empty()) {
 		return;
 	}
 
@@ -38,6 +39,18 @@ void HeadlessHost::SendDebugScreenshot(const u8 *pixbuf, u32 w, u32 h) {
 	GPUDebugBuffer buffer;
 	gpuDebug->GetCurrentFramebuffer(buffer, GPU_DBG_FRAMEBUF_DISPLAY);
 	const std::vector<u32> pixels = TranslateDebugBufferToCompare(&buffer, 512, 272);
+
+	// Always overwrite the dump file with the latest frame so on shutdown
+	// we have a snapshot of whatever was on screen last. Cheap path: BMP
+	// for now (PNG would need RGBA->RGB packing and zlib + libpng).
+	if (!dumpScreenshotPath_.empty()) {
+		ScreenshotComparer dump_comp(pixels, FRAME_STRIDE, FRAME_WIDTH, FRAME_HEIGHT);
+		dump_comp.SaveActualBitmap(dumpScreenshotPath_);
+	}
+
+	if (comparisonScreenshot_.empty()) {
+		return;  // only dumping, no comparison
+	}
 
 	ScreenshotComparer comparer(pixels, FRAME_STRIDE, FRAME_WIDTH, FRAME_HEIGHT);
 	double errors = comparer.Compare(comparisonScreenshot_);

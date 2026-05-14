@@ -57,6 +57,10 @@ public:
 		writeFailureScreenshot_ = flag;
 	}
 
+	void SetDumpScreenshot(const Path &filename) {
+		dumpScreenshotPath_ = filename;
+	}
+
 	void SendDebugScreenshot(const u8 *pixbuf, u32 w, u32 h);
 
 	virtual void SwapBuffers() {}
@@ -65,6 +69,7 @@ protected:
 	void SendAndCollectOutput(const std::string &output);
 
 	Path comparisonScreenshot_;
+	Path dumpScreenshotPath_;
 	double maxScreenshotError_ = 0.0;
 	std::string debugOutputBuffer_;
 	GPUCore gpuCore_;
