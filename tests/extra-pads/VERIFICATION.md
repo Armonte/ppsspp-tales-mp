@@ -1,7 +1,8 @@
 # Runtime verification of the extra-pads MMIO window
 
-Date: 2026-05-13. Tested against `v0.1.0` (commit `0e5a672`), Linux x64 build with
-SDL frontend, `bEnableExtraPads = True` set in `ppsspp.ini`.
+Date: 2026-05-13. Tested against `v0.1.1` (8-pad bump), Linux x64 build with
+SDL frontend, `bEnableExtraPads = True` set in `ppsspp.ini`. (Originally
+verified at `v0.1.0` with 4 pads.)
 
 ## What we ran
 
@@ -19,6 +20,10 @@ SAMPLE 0
   PAD1 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
   PAD2 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
   PAD3 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
+  PAD4 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
+  PAD5 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
+  PAD6 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
+  PAD7 frame=0000412b buttons=00000000 Lx=128 Ly=128 Rx=128 Ry=128
   sceCtrl: frame=0000412b buttons=00000000 Lx=128 Ly=128
 SAMPLE 1
   PAD0 frame=00008256 ...

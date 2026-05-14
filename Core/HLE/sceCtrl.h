@@ -25,9 +25,11 @@ void Register_sceCtrl();
 
 
 // Number of "virtual" pads supported. Pad 0 is the real PSP pad used by sceCtrl HLE.
-// Pads 1..3 are exposed to the game ONLY via the virtual MMIO window at 0x0E000000
-// (see Memory::IsExtraPadAddress), for ROM-hack-driven local multiplayer.
-constexpr int NUM_VIRTUAL_PADS = 4;
+// Pads 1..NUM_VIRTUAL_PADS-1 are exposed to the game ONLY via the virtual MMIO
+// window at 0x0E000000 (see Memory::IsExtraPadAddress), for ROM-hack-driven local
+// multiplayer. 8 = plenty for any reasonable PSP couch-co-op scenario; the MMIO
+// window is 4 KB so there's headroom if anyone wants more.
+constexpr int NUM_VIRTUAL_PADS = 8;
 const int CTRL_STICK_LEFT = 0;
 // The actual PSP only has one, but HD remasters expose this, maybe also the emulator on the PSP/Vita.
 const int CTRL_STICK_RIGHT = 1;
