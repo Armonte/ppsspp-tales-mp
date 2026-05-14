@@ -12,6 +12,10 @@
 
 namespace TalesMp {
 
+// Constants exported for ReadHookCounter() — see ApplyPatches() for details.
+static constexpr u32 HOOK_COUNTER_ADDR = 0x09F00100;
+static bool g_patches_applied = false;
+
 // Where the EBOOT lives at runtime. The PSP loader applies relocations to
 // this base, so every address from our IDA database needs PSP_LOAD_BASE
 // added to it before we can poke it via Memory::Write_U32.
@@ -65,36 +69,124 @@ bool ApplyPatches() {
 		return false;
 	}
 
-	// First-cut: don't actually mutate code yet. Just enumerate what we WOULD
-	// patch so we can verify the loop runs without crashing. Once we have
-	// the MIPS hook payload assembled and placed in unused PSP RAM, this loop
-	// will replace each `jal input_get_btn_make` with `jal <hook_addr>` and
-	// then call jit->InvalidateCacheAt() to flush the JIT translation.
 	int matched = 0, missed = 0;
 	for (u32 site : BTN_MAKE_CALLSITES) {
 		const u32 runtime_addr = PSP_LOAD_BASE + site;
 		const u32 instr = Memory::Read_U32(runtime_addr);
 		if (instr == expected_jal) {
 			matched++;
-			DEBUG_LOG(Log::Loader, "TalesMp:  site %08x ok (jal input_get_btn_make)", runtime_addr);
 		} else {
 			missed++;
 			WARN_LOG(Log::Loader, "TalesMp:  site %08x got %08x, expected %08x",
 				runtime_addr, instr, expected_jal);
 		}
 	}
-	INFO_LOG(Log::Loader, "TalesMp: pre-flight done. %d/%d sites verified%s",
+	INFO_LOG(Log::Loader, "TalesMp: pre-flight ok %d/%d sites%s",
 		matched, (int)ARRAY_SIZE(BTN_MAKE_CALLSITES),
-		missed ? " (some misses — investigate before patching)" : "");
+		missed ? " (some misses — aborting patch)" : "");
+	if (missed > 0) {
+		return false;
+	}
 
-	// TODO(next iteration):
-	//   1. Allocate or stake-claim a small region in PSP RAM for our hook
-	//      payload (suggest 0x09FF0000, in the EXTRA1 view we already added).
-	//   2. Write assembled MIPS bytes for hook_btn_make() into that region.
-	//   3. Loop and Memory::Write_U32(EncodeJal(hook_addr), site).
-	//   4. MIPSComp::jit->InvalidateCacheAt(first_site, last_site - first_site + 4).
-	//   5. Same for input_get_btn_press / input_get_btn_held sites.
-	return matched > 0;
+	// MIPS hook payload — see encoding rationale at the top of this file.
+	// 6 instructions: increment a counter at HOOK_COUNTER_ADDR, then tail-call
+	// input_get_btn_make so existing semantics are preserved. The counter
+	// proves the JIT invalidation worked: if zero after a run, the JIT is
+	// still executing pre-patch translation.
+	static constexpr u32 HOOK_ADDR = 0x09F00000;            // top of free user RAM
+	// HOOK_COUNTER_ADDR is file-scope so ReadHookCounter() can see it.
+	static const u32 hook_payload[] = {
+		0x3C0809F0,  // lui   $t0, 0x09F0           ; t0 = 0x09F00000
+		0x8D090100,  // lw    $t1, 0x100($t0)       ; t1 = *(0x09F00100)
+		0x25290001,  // addiu $t1, $t1, 1           ; ++counter
+		0xAD090100,  // sw    $t1, 0x100($t0)       ; *(0x09F00100) = t1
+		0x0A23A534,  // j     0x088E94D0            ; tail-call input_get_btn_make
+		0x00000000,  // nop                          ; delay slot
+	};
+
+	// Safety: hook region must be empty (read as zero). If not, we'd be
+	// overwriting something the game is using.
+	for (size_t i = 0; i < ARRAY_SIZE(hook_payload) + 1; ++i) {  // +1 for counter slot
+		const u32 a = HOOK_ADDR + (u32)(i * 4);
+		const u32 v = Memory::Read_U32(a);
+		if (v != 0) {
+			ERROR_LOG(Log::Loader, "TalesMp: hook region @ %08x not zero (got %08x). Aborting.", a, v);
+			return false;
+		}
+	}
+	const u32 counter_before = Memory::Read_U32(HOOK_COUNTER_ADDR);
+	INFO_LOG(Log::Loader, "TalesMp: hook region clean. Counter @ %08x = %u (pre-patch)",
+		HOOK_COUNTER_ADDR, counter_before);
+
+	// Write hook payload to PSP RAM.
+	for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
+		Memory::Write_U32(hook_payload[i], HOOK_ADDR + (u32)(i * 4));
+	}
+	// Verify by reading back.
+	for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
+		const u32 v = Memory::Read_U32(HOOK_ADDR + (u32)(i * 4));
+		if (v != hook_payload[i]) {
+			ERROR_LOG(Log::Loader, "TalesMp: writeback verify failed at %08x: got %08x, expected %08x",
+				HOOK_ADDR + (u32)(i * 4), v, hook_payload[i]);
+			return false;
+		}
+	}
+	INFO_LOG(Log::Loader, "TalesMp: hook payload written + verified at %08x (%zu instructions, %zu bytes)",
+		HOOK_ADDR, ARRAY_SIZE(hook_payload), ARRAY_SIZE(hook_payload) * 4);
+
+	// Now redirect all 23 call sites.
+	const u32 new_jal = EncodeJal(HOOK_ADDR);
+	INFO_LOG(Log::Loader, "TalesMp: replacing %u call sites with jal %08x (encoded %08x)",
+		(unsigned)ARRAY_SIZE(BTN_MAKE_CALLSITES), HOOK_ADDR, new_jal);
+	u32 first_site = 0xFFFFFFFFu;
+	u32 last_site  = 0u;
+	for (u32 site : BTN_MAKE_CALLSITES) {
+		const u32 runtime_addr = PSP_LOAD_BASE + site;
+		Memory::Write_U32(new_jal, runtime_addr);
+		if (runtime_addr < first_site) first_site = runtime_addr;
+		if (runtime_addr > last_site)  last_site  = runtime_addr;
+	}
+	// JIT cache invalidate the patched range. PPSSPP's JIT will re-translate
+	// these blocks on next execution; until we do this, the old (pre-patch)
+	// host code keeps running.
+	if (MIPSComp::jit) {
+		const u32 inv_start = first_site;
+		const u32 inv_len = (last_site - first_site) + 4;
+		MIPSComp::jit->InvalidateCacheAt(inv_start, inv_len);
+		INFO_LOG(Log::Loader, "TalesMp: JIT invalidated %08x..%08x (%u bytes)",
+			inv_start, inv_start + inv_len, inv_len);
+	} else {
+		WARN_LOG(Log::Loader, "TalesMp: no JIT instance? skipping cache invalidate.");
+	}
+
+	INFO_LOG(Log::Loader, "TalesMp: patch installed. Counter at %08x ticks per input_get_btn_make call.",
+		HOOK_COUNTER_ADDR);
+	g_patches_applied = true;
+	return true;
+}
+
+u32 ReadHookCounter() {
+	if (!g_patches_applied) return 0;
+	if (!Memory::IsValidAddress(HOOK_COUNTER_ADDR)) return 0;
+	return Memory::Read_U32(HOOK_COUNTER_ADDR);
+}
+
+void LogHookStatus() {
+	if (!g_patches_applied) {
+		INFO_LOG(Log::Loader, "TalesMp: status = patches not applied (game not matched)");
+		return;
+	}
+	const u32 counter = ReadHookCounter();
+	INFO_LOG(Log::Loader, "TalesMp: status = patches installed; hook fired %u times this session%s",
+		counter, counter == 0 ? " (never reached battle code)" : "");
+	// Verify the first patch site still holds our redirected JAL so we know
+	// nobody overwrote it during play. Helps catch JIT-invalidation issues.
+	if (Memory::IsValidAddress(PSP_LOAD_BASE + BTN_MAKE_CALLSITES[0])) {
+		const u32 site_now = Memory::Read_U32(PSP_LOAD_BASE + BTN_MAKE_CALLSITES[0]);
+		const u32 expected_jal_to_hook = EncodeJal(0x09F00000);
+		INFO_LOG(Log::Loader, "TalesMp: post-run check: site[0] = %08x (%s)", site_now,
+			site_now == expected_jal_to_hook ? "hooked, OK" : "OVERWRITTEN!");
+	}
 }
 
 }  // namespace TalesMp
