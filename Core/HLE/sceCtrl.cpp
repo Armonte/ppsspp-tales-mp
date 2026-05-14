@@ -174,6 +174,33 @@ static void __CtrlUpdateLatch()
 			}
 			memcpy(Memory::m_pExtraPadMMIO + i * sizeof(CtrlData), &snap, sizeof(CtrlData));
 		}
+		// Diagnostic: log pad 1 buttons once per ~1 second when non-zero.
+		// Helps confirm input from a UI-bound second pad reaches MMIO.
+		static u32 last_logged_buttons1 = 0;
+		const u32 buttons1 = ctrlCurrent[1].buttons;
+		if (buttons1 != 0 && buttons1 != last_logged_buttons1) {
+			INFO_LOG(Log::sceCtrl, "TalesMp tap: ctrlCurrent[1].buttons=%08x written to MMIO@%08x",
+				buttons1, 0x0E000010);
+			last_logged_buttons1 = buttons1;
+		}
+		// Diagnostic: periodically log hook state from MIPS-side scratch.
+		//   0x09F00100 = current_char_idx (u8) at last hook invocation
+		//   0x09F00104 = total hook invocation count (u32)
+		static int diag_ticks = 0;
+		static u32 last_count = 0;
+		if (++diag_ticks >= 60) {  // every 60 VBlanks ~= 1 second
+			diag_ticks = 0;
+			if (Memory::IsValidAddress(0x09F00100)) {
+				const u32 last_char_idx = Memory::Read_U8(0x09F00100);
+				const u32 count = Memory::Read_U32(0x09F00104);
+				if (count != last_count) {
+					INFO_LOG(Log::sceCtrl, "TalesMp diag: hook fired %u times, last char_idx=%u, MMIO pad %u buttons=%08x",
+						count, last_char_idx, last_char_idx,
+						last_char_idx < 8 ? Memory::Read_U32(0x0E000004 + last_char_idx * 16) : 0);
+					last_count = count;
+				}
+			}
+		}
 	}
 
 	ctrlBuf = (ctrlBuf + 1) % NUM_CTRL_BUFFERS;

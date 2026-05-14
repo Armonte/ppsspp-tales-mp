@@ -188,6 +188,7 @@ struct AutoTestOptions {
 	bool mashInput : 1;
 	u32 holdButtons;            // bitmask held every frame ("--hold=cross,down")
 	const char *saveStateOnExit;
+	const char *stateToLoad;    // post-init state load (preferred over the early load at main scope)
 };
 
 // Parse a comma-separated list of PSP button names into a bitmask.
@@ -259,6 +260,15 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 	}
 
 	System_Notify(SystemNotification::BOOT_DONE);
+
+	// Load state AFTER init so RAM is fully set up. The early `--state=` at
+	// main scope only works for trivial test ROMs; full game ISOs need the
+	// load to be enqueued post-init and then processed during the first few
+	// emulator frames below.
+	if (opt.stateToLoad && opt.stateToLoad[0]) {
+		fprintf(stderr, "TalesMp: enqueueing state load from %s\n", opt.stateToLoad);
+		SaveState::Load(Path(std::string(opt.stateToLoad)), -1);
+	}
 
 	PSP_UpdateDebugStats((DebugOverlay)g_Config.iDebugOverlay == DebugOverlay::DEBUG_STATS || g_Config.bLogFrameDrops);
 
@@ -468,7 +478,7 @@ int main(int argc, const char* argv[])
 	AutoTestOptions testOptions{};
 	testOptions.timeout = std::numeric_limits<double>::infinity();
 	bool fullLog = false;
-	const char *stateToLoad = 0;
+	// stateToLoad is set via testOptions.stateToLoad; the old early-load is gone.
 	GPUCore gpuCore = GPUCORE_SOFTWARE;
 	CPUCore cpuCore = CPUCore::JIT;
 	int debuggerPort = -1;
@@ -557,7 +567,7 @@ int main(int argc, const char* argv[])
 		else if (!strcmp(argv[i], "--teamcity"))
 			teamCityMode = true;
 		else if (!strncmp(argv[i], "--state=", strlen("--state=")) && strlen(argv[i]) > strlen("--state="))
-			stateToLoad = argv[i] + strlen("--state=");
+			testOptions.stateToLoad = argv[i] + strlen("--state=");
 		else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
 			return printUsage(argv[0], NULL);
 		else if (!strcmp(argv[i], "--ignore")) {
@@ -732,8 +742,9 @@ int main(int argc, const char* argv[])
 		StartWebServer(WebServerFlags::DEBUGGER);
 	}
 
-	if (stateToLoad != NULL)
-		SaveState::Load(Path(stateToLoad), -1);
+	// State load moved into RunAutoTest (after PSP_IsInited). The old early
+	// load only worked for trivial test ROMs; for real game ISOs the state
+	// must be loaded after the EBOOT is in RAM.
 
 	std::vector<std::string> failedTests;
 	std::vector<std::string> passedTests;
