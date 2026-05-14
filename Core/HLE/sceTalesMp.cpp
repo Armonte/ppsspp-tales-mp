@@ -154,8 +154,15 @@ bool ApplyPatches() {
 	static const u32 hook_payload[] = {
 		// 00: addiu $t9, $0, 1                 ; t9 = 1
 		0x24190001,
-		// 04: sb    $t9, 0x627($s2)            ; bs->coop_flag = 1
-		0xA2590627,
+		// 04: nop (coop_flag set REMOVED. Was triggering per-frame
+		//          Cless→Mint state syncs inside sub_42C18 even after
+		//          our per-char wrapper cleared it (main hook re-set it
+		//          on every input_get_btn_make call inside sub_42C18).
+		//          Game's normal coop_flag should stay 0; Mint's +0x3E1
+		//          will be 1 (AI flag) per dispatch loop, but our AI
+		//          bypass + cur_idx swap + char+49 self-target keep
+		//          pad-1 input flowing.)
+		0x00000000,
 		// 08: sb    $0,  0x629($s2)            ; bs->coop_char1_idx = 0 (Cless)
 		0xA2400629,
 		// 0c: sb    $t9, 0x62A($s2)            ; bs->coop_char2_idx = 1 (Mint)
@@ -254,7 +261,7 @@ bool ApplyPatches() {
 		// 1c: addiu $t9, $0, 1
 		0x24190001,
 		// 20: bne   $s1, $t9, .normal_call  (offset 0x30 → instr 57)
-		0x16390030,
+		0x16390031,
 		// 24: nop
 		0x00000000,
 		// --- check is_2nd_call flag (was: coop_flag). Only do the swap
@@ -272,7 +279,7 @@ bool ApplyPatches() {
 		// 38: sw    $t7, 0x504($t8)         ; slot-1 wrapper hits
 		0xAF0F0504,
 		// 3c: beq   $t9, $0, .normal_call   (offset 0x29 → instr 57)
-		0x13200029,
+		0x1320002A,
 		// 40: nop
 		0x00000000,
 		// --- Mint slot + coop active: swap state, do tick, restore ---
@@ -301,15 +308,22 @@ bool ApplyPatches() {
 		0x80990005,
 		// 70: sb    $t9, 0x5F8($s2)         ; bs->current_char_idx = char_id
 		0xA25905F8,
-		// 74: addiu $t9, $0, 1              ; semi-auto = 1
+		// 74: addiu $t9, $0, 1              ; t9 = 1 (used for multiple flags)
 		0x24190001,
 		// 78: sb    $t9, 0x35($a0)          ; char->control_mode = 1 (semi)
 		0xA0990035,
-		// 7c: lw    $t8, 0x194($a0)         ; char->status flags
+		// 7c: sb    $t9, 0x31($a0)          ; char->+49 = 1 (own slot — self-target
+		//                                     to break the per-frame Cless-following
+		//                                     gravity. Stale value here pointed at
+		//                                     coop_char1's slot and downstream code
+		//                                     was using char_ptrs[+49] as a movement
+		//                                     target.)
+		0xA0990031,
+		// 80: lw    $t8, 0x194($a0)         ; char->status flags
 		0x8C980194,
-		// 80: ori   $t8, $t8, 2             ; AI-bypass bit
+		// 84: ori   $t8, $t8, 2             ; AI-bypass bit
 		0x37180002,
-		// 84: sw    $t8, 0x194($a0)
+		// 88: sw    $t8, 0x194($a0)
 		0xAC980194,
 		// 40: lui   $t8, 0x0E00             ; MMIO base
 		0x3C180E00,
@@ -321,16 +335,21 @@ bool ApplyPatches() {
 		0x35EFFFFF,
 		// 50: and   $t9, $t9, $t7
 		0x032FC824,
-		// 54: lui   $t7, 0x09F0
-		0x3C0F09F0,
-		// 58: lw    $t6, 0x304($t7)         ; pad-1 prev buttons
-		0x8DEE0304,
-		// 5c: xor   $t5, $t9, $t6
-		0x032E6826,
-		// 60: and   $t5, $t5, $t9           ; btn_make
-		0x01B96824,
-		// 64: sw    $t9, 0x304($t7)         ; update prev
-		0xADF90304,
+		// 54: nop  (pad-1 prev-cache logic at 0x09F00304 removed — that
+		//          address overlapped the dual-FSM wrapper's code region
+		//          and the sw was corrupting wrapper instructions when
+		//          pad-1 had input. The per-char wrapper's pad-1 reads
+		//          are now unused anyway since its g_player_input writes
+		//          are nopped further down.)
+		0x00000000,
+		// 58: nop
+		0x00000000,
+		// 5c: nop
+		0x00000000,
+		// 60: nop
+		0x00000000,
+		// 64: nop
+		0x00000000,
 		// 68: lui   $t8, 0x08A4             ; g_player_input base hi
 		0x3C1808A4,
 		// 6c: addiu $t8, $t8, 0xB7AC        ; signext → 0x08A3B7AC (held)
@@ -377,7 +396,7 @@ bool ApplyPatches() {
 		// ac: addiu $sp, $sp, 16
 		0x27BD0010,
 	};
-	static_assert(ARRAY_SIZE(wrapper_payload) == 62, "wrapper_payload size changed; recompute branch offsets");
+	static_assert(ARRAY_SIZE(wrapper_payload) == 63, "wrapper_payload size changed; recompute branch offsets");
 
 	// Write wrapper payload to PSP RAM.
 	for (size_t i = 0; i < ARRAY_SIZE(wrapper_payload); ++i) {
@@ -608,12 +627,34 @@ bool ApplyPatches() {
 	const u32 fsm_actual = Memory::Read_U32(fsm_site_runtime);
 	INFO_LOG(Log::Loader, "TalesMp: fsm callsite @ %08x: got=%08x  (orig=%08x wrapper=%08x)",
 		fsm_site_runtime, fsm_actual, expected_fsm_jal, expected_fsm_wrapper_jal);
-	// (Previously nopped sub_C1C8 callsites here to eliminate the partner
-	// damping/clear that was locking Mint's X axis. Restored to avoid the
-	// downstream NULL deref in battle_set_action_mode_50. Accept X trailing
-	// as a known limitation; it can be addressed surgically by patching
-	// individual `sb` instructions inside sub_42C18 rather than nopping
-	// the whole coop tick.)
+	// Surgical patches to suppress partner-follow behavior on Mint without
+	// breaking the rest of the coop tick (the global sub_C1C8 nop caused
+	// NULL derefs in battle_set_action_mode_50). Targeted nops inside
+	// sub_3F194 (battle_coop_char_tick) for the partner-state setup:
+	//   0x3F254: sw $zero, 0x10C($s0)   ; clear input bits (delay slot of b)
+	//   0x3F258: sw $zero, 0x10C($s0)   ; clear input bits (other branch)
+	//   0x3F328: swc1 $f12, 0x190($s0)  ; write damping 0.25 to char->+0x190
+	// Nopping these prevents the per-frame partner cleanse that drags Mint
+	// toward Cless. Keep the other state setup intact so battle_set_action_mode_50
+	// finds valid active_char downstream.
+	static constexpr u32 PARTNER_TICK_NOPS[] = {
+		0x03F254,  // sw $zero, 0x10C($s0)  — partner input-bits clear (delay slot of b)
+		0x03F258,  // sw $zero, 0x10C($s0)  — partner input-bits clear (other branch)
+		0x03F328,  // swc1 $f12, 0x190($s0) — partner damping 0.25 write
+		0x044478,  // jal battle_char_ai_decide (sub_60E9C) — direct nop to ensure
+		           //  AI tick doesn't run for partner, regardless of char->+0x194
+		           //  bit-1 state (our wrapper sets it but belt-and-suspenders).
+	};
+	u32 pt_first = 0xFFFFFFFFu, pt_last = 0u;
+	for (u32 addr : PARTNER_TICK_NOPS) {
+		const u32 runtime_addr = PSP_LOAD_BASE + addr;
+		Memory::Write_U32(0x00000000, runtime_addr);
+		if (runtime_addr < pt_first) pt_first = runtime_addr;
+		if (runtime_addr > pt_last)  pt_last  = runtime_addr;
+	}
+	if (MIPSComp::jit) MIPSComp::jit->InvalidateCacheAt(pt_first, (pt_last - pt_first) + 4);
+	INFO_LOG(Log::Loader, "TalesMp: nopped %u partner-tick writes in sub_3F194 (anti-gravity)",
+		(unsigned)ARRAY_SIZE(PARTNER_TICK_NOPS));
 
 	// DIAGNOSTIC: install a MINIMAL passthrough wrapper at 0x09F00400 instead
 	// of the dual-FSM wrapper at 0x09F00200. The minimal wrapper does nothing
