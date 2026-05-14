@@ -1804,13 +1804,14 @@ bool __KernelLoadExec(const char *filename, u32 paramPtr, std::string *error_str
 	{
 		const std::string disc_id = g_paramSFO.GetDiscID();
 		INFO_LOG(Log::Loader, "TalesMp: hook point reached; disc_id='%s' module='%s'", disc_id.c_str(), moduleName);
-		// Fallback to module name match if disc_id lookup is empty (happens in
-		// some headless paths where ParamSFO isn't loaded). NDX module ID is
-		// "TOP_NARIKIRI_DUNGEON_R".
-		const bool match_by_id = TalesMp::IsSupportedDiscId(disc_id);
-		const bool match_by_name = std::string_view(moduleName).find("TOP_NARIKIRI_DUNGEON_R") != std::string_view::npos;
-		if (match_by_id || match_by_name) {
-			INFO_LOG(Log::Loader, "TalesMp: matched via %s; invoking patcher", match_by_id ? "DISC_ID" : "module-name");
+		// NDX UMD ULJS00293 / PSN NPJH50231 contains TWO games sharing the
+		// same disc-id: Tales of Phantasia X (TOP_PHANTASIA_R) and
+		// Narikiri Dungeon X (TOP_NARIKIRI_DUNGEON_R). Disc-id alone is
+		// insufficient; match ONLY by module name so we don't apply
+		// NDX-specific patches to the launcher or to Phantasia X.
+		const bool is_ndx_module = std::string_view(moduleName).find("TOP_NARIKIRI_DUNGEON_R") != std::string_view::npos;
+		if (is_ndx_module) {
+			INFO_LOG(Log::Loader, "TalesMp: matched NDX module; invoking patcher");
 			TalesMp::ApplyPatches();
 		}
 	}

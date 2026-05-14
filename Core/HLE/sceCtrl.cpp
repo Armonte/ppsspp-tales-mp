@@ -200,6 +200,12 @@ static void __CtrlUpdateLatch()
 				const u32 w_last_s1 = Memory::Read_U8(0x09F00520);
 				const u32 w_mint_id = Memory::Read_U8(0x09F00524);
 				const u32 w_mint_mode = Memory::Read_U8(0x09F00525);
+				const u32 w_cless_t49 = Memory::Read_U8(0x09F00526);
+				const u32 w_mint_t49 = Memory::Read_U8(0x09F00527);
+				const u32 w_mint_t49_post = Memory::Read_U8(0x09F00528);
+				const u32 w_resolved_ptr = Memory::Read_U32(0x09F0052C);
+				INFO_LOG(Log::sceCtrl, "TalesMp targets: Cless+49=%u Mint+49(pre)=%u Mint+49(post-jal)=%u resolved_char_ptrs[+49]=%08x",
+					w_cless_t49, w_mint_t49, w_mint_t49_post, w_resolved_ptr);
 				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1=%u swap=%u last_$s1=%u  Mint(id=%u,mode_before=%u)",
 					w_total, w_slot1, w_swap, w_last_s1, w_mint_id, w_mint_mode);
 			}

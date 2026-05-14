@@ -260,8 +260,8 @@ bool ApplyPatches() {
 		// --- check $s1 == 1 ---
 		// 1c: addiu $t9, $0, 1
 		0x24190001,
-		// 20: bne   $s1, $t9, .normal_call  (offset 0x30 → instr 57)
-		0x16390032,
+		// 20: bne   $s1, $t9, .normal_call  (offset 0x3E → instr 71)
+		0x1639003E,
 		// 24: nop
 		0x00000000,
 		// --- check is_2nd_call flag (was: coop_flag). Only do the swap
@@ -278,8 +278,8 @@ bool ApplyPatches() {
 		0x25EF0001,
 		// 38: sw    $t7, 0x504($t8)         ; slot-1 wrapper hits
 		0xAF0F0504,
-		// 3c: beq   $t9, $0, .normal_call   (offset 0x29 → instr 57)
-		0x1320002B,
+		// 3c: beq   $t9, $0, .normal_call   (offset 0x37 → instr 71)
+		0x13200037,
 		// 40: nop
 		0x00000000,
 		// --- Mint slot + coop active: swap state, do tick, restore ---
@@ -312,11 +312,22 @@ bool ApplyPatches() {
 		0x24190001,
 		// 78: sb    $t9, 0x35($a0)          ; char->control_mode = 1 (semi)
 		0xA0990035,
-		// 7c: nop (was sb $t9, 0x31($a0) char+49=1 self-target — removed
-		//          to let char+49 retain the game's natural enemy-target
-		//          slot for the reticle. Gravity is broken by the post-jal
-		//          override of char+584=self instead.)
-		0x00000000,
+		// 7c: lw $t8, 0xFC0($s2)            ; t8 = char_ptrs[0] = Cless
+		0x8E580FC0,
+		// 80: lb $t9, 0x31($t8)             ; t9 = Cless->+49 (target slot)
+		0x83190031,
+		// 84: sb $t9, 0x31($a0)             ; Mint->+49 = Cless's target slot
+		0xA0990031,
+		// 88: DIAG: log Cless's +49 and Mint's +49 to 0x09F00526/527 so we
+		//          can see what slot value Cless is actually using.
+		// 88: lui $t7, 0x09F0
+		0x3C0F09F0,
+		// 8c: sb $t9, 0x526($t7)             ; Cless's +49 → diag
+		0xA1F90526,
+		// 90: lb $t6, 0x31($a0)              ; reload Mint's +49 (= just-set Cless's val)
+		0x808E0031,
+		// 94: sb $t6, 0x527($t7)             ; diag
+		0xA1EE0527,
 		// 80: lw    $t8, 0x194($a0)         ; char->status flags
 		0x8C980194,
 		// 84: ori   $t8, $t8, 2             ; AI-bypass bit
@@ -369,13 +380,23 @@ bool ApplyPatches() {
 		0x0E211B06,
 		// 80: nop                            ; delay slot
 		0x00000000,
-		// --- Post-sub_42C18: override char->+584 = self to break the
-		//     per-frame Cless-following gravity without polluting char+49
-		//     (which the targeting reticle reads). Movement code uses
-		//     char+584 as "current movement target" — pointing it at
-		//     Mint herself = no pull. ---
-		// 84: sw    $a0, 0x248($a0)          ; char->+584 (=0x248) = self ptr
-		0xAC840248,
+		// DIAG: read Mint+49 AFTER sub_42C18 to see if game overwrote our
+		// set, and also read char_ptrs[Mint+49] to check what slot it
+		// resolves to. Store at 0x09F00528/052C.
+		// 88: lb $t9, 0x31($a0)             ; t9 = Mint+49 post-jal
+		0x80990031,
+		// 8c: lui $t7, 0x09F0
+		0x3C0F09F0,
+		// 90: sb $t9, 0x528($t7)             ; diag: Mint+49 post-jal
+		0xA1F90528,
+		// 94: sll $t6, $t9, 2                ; t6 = (Mint+49) * 4
+		0x00197080,
+		// 98: addu $t6, $t6, $s2             ; t6 = bs + (+49)*4
+		0x025E7021,
+		// 9c: lw $t5, 0xFC0($t6)              ; t5 = char_ptrs[+49]
+		0x8DCD0FC0,
+		// a0: sw $t5, 0x52C($t7)              ; diag: resolved target ptr
+		0xADED052C,
 		// --- Restore current_char_idx ---
 		// 88: lui   $t8, 0x09F0
 		0x3C1809F0,
@@ -401,7 +422,7 @@ bool ApplyPatches() {
 		// ac: addiu $sp, $sp, 16
 		0x27BD0010,
 	};
-	static_assert(ARRAY_SIZE(wrapper_payload) == 64, "wrapper_payload size changed; recompute branch offsets");
+	static_assert(ARRAY_SIZE(wrapper_payload) == 76, "wrapper_payload size changed; recompute branch offsets");
 
 	// Write wrapper payload to PSP RAM.
 	for (size_t i = 0; i < ARRAY_SIZE(wrapper_payload); ++i) {
