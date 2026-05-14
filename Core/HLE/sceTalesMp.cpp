@@ -595,6 +595,25 @@ bool ApplyPatches() {
 	const u32 fsm_actual = Memory::Read_U32(fsm_site_runtime);
 	INFO_LOG(Log::Loader, "TalesMp: fsm callsite @ %08x: got=%08x  (orig=%08x wrapper=%08x)",
 		fsm_site_runtime, fsm_actual, expected_fsm_jal, expected_fsm_wrapper_jal);
+	// --- NOP the 2 per-frame jal battle_coop_tick_both_chars calls ---
+	// These calls invoke sub_3F194 which clears the partner's input bits at
+	// char->+0x10C and writes a damping value 0.25 to char->+0x190 every
+	// frame. That cleared bits/damping prevents independent X-axis control
+	// of the partner (only Y axis works because Y uses a separate code
+	// path). Nopping prevents the coop tick from cleansing partner state.
+	// Also reduces dual-FSM crash risk since sub_3F194 may be non-reentrant.
+	static constexpr u32 COOP_TICK_CALLSITES[] = { 0x0123D8, 0x012560 };
+	u32 ct_first = 0xFFFFFFFFu, ct_last = 0u;
+	for (u32 site : COOP_TICK_CALLSITES) {
+		const u32 runtime_addr = PSP_LOAD_BASE + site;
+		Memory::Write_U32(0x00000000, runtime_addr);
+		if (runtime_addr < ct_first) ct_first = runtime_addr;
+		if (runtime_addr > ct_last)  ct_last  = runtime_addr;
+	}
+	if (MIPSComp::jit) MIPSComp::jit->InvalidateCacheAt(ct_first, (ct_last - ct_first) + 4);
+	INFO_LOG(Log::Loader, "TalesMp: nopped %u jal sub_C1C8 sites (coop tick per-frame disabled)",
+		(unsigned)ARRAY_SIZE(COOP_TICK_CALLSITES));
+
 	// DIAGNOSTIC: install a MINIMAL passthrough wrapper at 0x09F00400 instead
 	// of the dual-FSM wrapper at 0x09F00200. The minimal wrapper does nothing
 	// but call battle_input_dispatch once and return. If THIS crashes, the
@@ -614,12 +633,16 @@ bool ApplyPatches() {
 	}
 	const u32 expected_min_wrapper_jal = EncodeJal(FSM_MIN_WRAPPER_ADDR);
 	INFO_LOG(Log::Loader, "TalesMp: minimal-wrapper installed @ %08x", FSM_MIN_WRAPPER_ADDR);
+	// Re-enable DUAL-FSM wrapper at 0x09F00200 now that coop_tick is nopped.
+	// (Previously the crash 0x300880CD happened because sub_3F194 — invoked
+	// from sub_C1C8 per frame — isn't safely reentrant when battle_input_dispatch
+	// runs twice. With those calls nopped, dual-FSM should be stable.)
 	if (fsm_actual == expected_fsm_jal || fsm_actual == expected_fsm_wrapper_jal || fsm_actual == expected_min_wrapper_jal) {
-		Memory::Write_U32(expected_min_wrapper_jal, fsm_site_runtime);
+		Memory::Write_U32(expected_fsm_wrapper_jal, fsm_site_runtime);
 		if (MIPSComp::jit) {
 			MIPSComp::jit->InvalidateCacheAt(fsm_site_runtime, 4);
 		}
-		INFO_LOG(Log::Loader, "TalesMp: fsm callsite redirected to MINIMAL wrapper at %08x", FSM_MIN_WRAPPER_ADDR);
+		INFO_LOG(Log::Loader, "TalesMp: fsm callsite re-redirected to DUAL-FSM wrapper at %08x", FSM_WRAPPER_ADDR);
 	} else {
 		ERROR_LOG(Log::Loader, "TalesMp: fsm callsite mismatch; not touching");
 	}
