@@ -261,7 +261,7 @@ bool ApplyPatches() {
 		// 1c: addiu $t9, $0, 1
 		0x24190001,
 		// 20: bne   $s1, $t9, .normal_call  (offset 0x30 → instr 57)
-		0x16390031,
+		0x16390032,
 		// 24: nop
 		0x00000000,
 		// --- check is_2nd_call flag (was: coop_flag). Only do the swap
@@ -279,7 +279,7 @@ bool ApplyPatches() {
 		// 38: sw    $t7, 0x504($t8)         ; slot-1 wrapper hits
 		0xAF0F0504,
 		// 3c: beq   $t9, $0, .normal_call   (offset 0x29 → instr 57)
-		0x1320002A,
+		0x1320002B,
 		// 40: nop
 		0x00000000,
 		// --- Mint slot + coop active: swap state, do tick, restore ---
@@ -312,13 +312,11 @@ bool ApplyPatches() {
 		0x24190001,
 		// 78: sb    $t9, 0x35($a0)          ; char->control_mode = 1 (semi)
 		0xA0990035,
-		// 7c: sb    $t9, 0x31($a0)          ; char->+49 = 1 (own slot — self-target
-		//                                     to break the per-frame Cless-following
-		//                                     gravity. Stale value here pointed at
-		//                                     coop_char1's slot and downstream code
-		//                                     was using char_ptrs[+49] as a movement
-		//                                     target.)
-		0xA0990031,
+		// 7c: nop (was sb $t9, 0x31($a0) char+49=1 self-target — removed
+		//          to let char+49 retain the game's natural enemy-target
+		//          slot for the reticle. Gravity is broken by the post-jal
+		//          override of char+584=self instead.)
+		0x00000000,
 		// 80: lw    $t8, 0x194($a0)         ; char->status flags
 		0x8C980194,
 		// 84: ori   $t8, $t8, 2             ; AI-bypass bit
@@ -371,12 +369,19 @@ bool ApplyPatches() {
 		0x0E211B06,
 		// 80: nop                            ; delay slot
 		0x00000000,
+		// --- Post-sub_42C18: override char->+584 = self to break the
+		//     per-frame Cless-following gravity without polluting char+49
+		//     (which the targeting reticle reads). Movement code uses
+		//     char+584 as "current movement target" — pointing it at
+		//     Mint herself = no pull. ---
+		// 84: sw    $a0, 0x248($a0)          ; char->+584 (=0x248) = self ptr
+		0xAC840248,
 		// --- Restore current_char_idx ---
-		// 84: lui   $t8, 0x09F0
+		// 88: lui   $t8, 0x09F0
 		0x3C1809F0,
-		// 88: lb    $t9, 0x308($t8)         ; load saved cur_idx
+		// 8c: lb    $t9, 0x308($t8)         ; load saved cur_idx
 		0x83190308,
-		// 8c: sb    $t9, 0x5F8($s2)         ; bs->current_char_idx = saved
+		// 90: sb    $t9, 0x5F8($s2)         ; bs->current_char_idx = saved
 		0xA25905F8,
 		// 90: lw    $ra, 0($sp)
 		0x8FBF0000,
@@ -396,7 +401,7 @@ bool ApplyPatches() {
 		// ac: addiu $sp, $sp, 16
 		0x27BD0010,
 	};
-	static_assert(ARRAY_SIZE(wrapper_payload) == 63, "wrapper_payload size changed; recompute branch offsets");
+	static_assert(ARRAY_SIZE(wrapper_payload) == 64, "wrapper_payload size changed; recompute branch offsets");
 
 	// Write wrapper payload to PSP RAM.
 	for (size_t i = 0; i < ARRAY_SIZE(wrapper_payload); ++i) {
