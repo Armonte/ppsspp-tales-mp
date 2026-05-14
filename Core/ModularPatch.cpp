@@ -257,6 +257,18 @@ bool ApplyPatchFile(const PatchFile &pf) {
 				return false;
 			}
 		}
+		// Invalidate JIT cache for the payload region. After savestate load,
+		// PPSSPP may have JIT-compiled blocks that cached the OLD wrapper
+		// bytes; without an explicit invalidate they will re-execute stale
+		// host code that doesn't match the freshly-written MIPS payload. The
+		// pre-refactor sceTalesMp didn't invalidate either, but its pre-flight
+		// abort masked this: if state restored unexpected bytes, patches were
+		// skipped, so the JIT had nothing new to be stale about. We patch
+		// unconditionally now, so we must invalidate explicitly.
+		if (MIPSComp::jit && !p.instructions.empty()) {
+			MIPSComp::jit->InvalidateCacheAt(p.address,
+				static_cast<int>(p.instructions.size() * 4));
+		}
 	}
 
 	for (const PatchSite &s : pf.patches) {
