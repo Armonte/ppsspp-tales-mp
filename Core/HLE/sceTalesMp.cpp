@@ -45,6 +45,10 @@ static constexpr u32 CHAR_UPDATE_CALLSITES[] = {
 static constexpr u32 INPUT_GET_BTN_MAKE_ADDR = 0xE54D0;
 // Address of battle_char_update_per_frame in the EBOOT (IDA-relative).
 static constexpr u32 CHAR_UPDATE_ADDR = 0x42C18;
+// Address of battle_input_dispatch (the 12KB FSM) in the EBOOT.
+static constexpr u32 BATTLE_INPUT_DISPATCH_ADDR = 0xFCBC;
+// Single JAL site in battle_main_loop that calls battle_input_dispatch.
+static constexpr u32 FSM_CALLSITE = 0x008DC0;
 
 bool IsSupportedDiscId(std::string_view disc_id) {
 	// Tales of Phantasia: Narikiri Dungeon X
@@ -156,21 +160,24 @@ bool ApplyPatches() {
 		0xA2400629,
 		// 0c: sb    $t9, 0x62A($s2)            ; bs->coop_char2_idx = 1 (Mint)
 		0xA259062A,
+		// Main hook is now coop-flag setter only (no g_player_input override).
+		// The dual-FSM wrapper at 0x09F00200 handles per-pad swap before each
+		// of its two battle_input_dispatch calls. Diag counter still ticks.
 		// 10: lui   $t9, 0x09F0                ; diag scratch base
 		0x3C1909F0,
-		// 14: lw    $t8, 0x400($t9)            ; t8 = invocation counter
+		// 14: lw    $t8, 0x400($t9)            ; counter
 		0x8F380400,
-		// 18: addiu $t8, $t8, 1                ; ++counter
+		// 18: addiu $t8, $t8, 1
 		0x27180001,
-		// 1c: sw    $t8, 0x400($t9)            ; counter store
+		// 1c: sw    $t8, 0x400($t9)
 		0xAF380400,
-		// 20: lbu   $t7, 0x5F8($s2)            ; t7 = current_char_idx (post-write)
+		// 20: lbu   $t7, 0x5F8($s2)
 		0x924F05F8,
-		// 24: sb    $t7, 0x404($t9)            ; diag: char_idx
+		// 24: sb    $t7, 0x404($t9)
 		0xA32F0404,
 		// 28: j     0x088E94D0                 ; tail-call original input_get_btn_make
 		0x0A23A534,
-		// 2c: nop                              ; delay slot
+		// 2c: nop
 		0x00000000,
 	};
 
@@ -246,8 +253,8 @@ bool ApplyPatches() {
 		// --- check $s1 == 1 ---
 		// 1c: addiu $t9, $0, 1
 		0x24190001,
-		// 20: bne   $s1, $t9, .normal_call  (offset 0x27 → instr 48)
-		0x16390027,
+		// 20: bne   $s1, $t9, .normal_call  (offset 0x30 → instr 57)
+		0x16390030,
 		// 24: nop
 		0x00000000,
 		// --- check coop_flag ---
@@ -262,26 +269,45 @@ bool ApplyPatches() {
 		0x25EF0001,
 		// 38: sw    $t7, 0x504($t8)         ; slot-1 wrapper hits
 		0xAF0F0504,
-		// 3c: beq   $t9, $0, .normal_call   (offset 0x20 → instr 48)
-		0x13200020,
+		// 3c: beq   $t9, $0, .normal_call   (offset 0x29 → instr 57)
+		0x13200029,
 		// 40: nop
 		0x00000000,
 		// --- Mint slot + coop active: swap state, do tick, restore ---
-		// 20: lb    $t9, 0x5F8($s2)         ; t9 = saved current_char_idx
-		0x825905F8,
-		// 24: lui   $t8, 0x09F0
+		// post-coop diag: bump 0x09F00508 ("swap-actually-taken" counter)
+		// 44: lui   $t8, 0x09F0
 		0x3C1809F0,
-		// 28: sb    $t9, 0x308($t8)         ; *(0x09F00308) = saved cur_idx
+		// 48: lw    $t7, 0x508($t8)
+		0x8F0F0508,
+		// 4c: addiu $t7, $t7, 1
+		0x25EF0001,
+		// 50: sw    $t7, 0x508($t8)
+		0xAF0F0508,
+		// 54: lb    $t7, 5($a0)             ; char_id (Mint)
+		0x808F0005,
+		// 58: sb    $t7, 0x524($t8)         ; diag: Mint's char_id
+		0xA30F0524,
+		// 5c: lb    $t7, 0x35($a0)          ; char->control_mode (current)
+		0x808F0035,
+		// 60: sb    $t7, 0x525($t8)         ; diag: Mint's control_mode (before our write)
+		0xA30F0525,
+		// 64: lb    $t9, 0x5F8($s2)         ; saved current_char_idx
+		0x825905F8,
+		// 68: sb    $t9, 0x308($t8)         ; save cur_idx
 		0xA3190308,
-		// 2c: lb    $t9, 5($a0)             ; t9 = char->+5 (char_id, e.g. Mint=1)
+		// 6c: lb    $t9, 5($a0)             ; char->+5 (char_id)
 		0x80990005,
-		// 30: sb    $t9, 0x5F8($s2)         ; bs->current_char_idx = char_id
+		// 70: sb    $t9, 0x5F8($s2)         ; bs->current_char_idx = char_id
 		0xA25905F8,
-		// 34: lw    $t8, 0x194($a0)         ; char->status flags
+		// 74: addiu $t9, $0, 1              ; semi-auto = 1
+		0x24190001,
+		// 78: sb    $t9, 0x35($a0)          ; char->control_mode = 1 (semi)
+		0xA0990035,
+		// 7c: lw    $t8, 0x194($a0)         ; char->status flags
 		0x8C980194,
-		// 38: ori   $t8, $t8, 2             ; set "AI bypass" bit
+		// 80: ori   $t8, $t8, 2             ; AI-bypass bit
 		0x37180002,
-		// 3c: sw    $t8, 0x194($a0)
+		// 84: sw    $t8, 0x194($a0)
 		0xAC980194,
 		// 40: lui   $t8, 0x0E00             ; MMIO base
 		0x3C180E00,
@@ -303,16 +329,16 @@ bool ApplyPatches() {
 		0x01B96824,
 		// 64: sw    $t9, 0x304($t7)         ; update prev
 		0xADF90304,
-		// 68: lui   $t8, 0x0046             ; g_player_input base
-		0x3C180046,
-		// 6c: ori   $t8, $t8, 0x303C
-		0x3718303C,
-		// 70: sw    $t5, 0($t8)             ; btn_make
-		0xAF0D0000,
-		// 74: sw    $t5, 4($t8)             ; btn_press
-		0xAF0D0004,
-		// 78: sw    $t9, 8($t8)             ; prev_buttons (held)
-		0xAF190008,
+		// 68: lui   $t8, 0x08A4             ; g_player_input base hi
+		0x3C1808A4,
+		// 6c: addiu $t8, $t8, 0xB7AC        ; signext → 0x08A3B7AC (held)
+		0x2718B7AC,
+		// 70: nop  (was: sw t9 → g_player_input.held; suppressed to avoid
+		0x00000000,
+		// 74: nop      polluting pad-0 data for Cless's subsequent ticks
+		0x00000000,
+		// 78: nop      in the same frame).
+		0x00000000,
 		// 7c: jal   0x08846C18              ; sub_42C18
 		0x0E211B06,
 		// 80: nop                            ; delay slot
@@ -342,7 +368,7 @@ bool ApplyPatches() {
 		// ac: addiu $sp, $sp, 16
 		0x27BD0010,
 	};
-	static_assert(ARRAY_SIZE(wrapper_payload) == 53, "wrapper_payload size changed; recompute branch offsets");
+	static_assert(ARRAY_SIZE(wrapper_payload) == 62, "wrapper_payload size changed; recompute branch offsets");
 
 	// Write wrapper payload to PSP RAM.
 	for (size_t i = 0; i < ARRAY_SIZE(wrapper_payload); ++i) {
@@ -399,8 +425,227 @@ bool ApplyPatches() {
 		WARN_LOG(Log::Loader, "TalesMp: no JIT instance? skipping cache invalidate.");
 	}
 
+	// --- Dual-FSM wrapper at 0x09F00200 ---
+	// Patches the JAL battle_input_dispatch site at 0x8DC0 in battle_main_loop.
+	// Runs battle_input_dispatch TWICE per frame:
+	//   1st: original $a0 (bs), current_char_idx unchanged, g_player_input as-is
+	//        (pad-0 data from input_read_frame). Drives Cless.
+	//   2nd: g_player_input overwritten with pad-1 data + properly-computed
+	//        btn_make ((cur ^ prev) & cur), current_char_idx swapped to Mint's
+	//        char_id. Drives Mint.
+	// Then restores g_player_input + current_char_idx so subsequent code runs
+	// against the original (pad-0) state.
+	static constexpr u32 FSM_WRAPPER_ADDR = 0x09F00200;
+	static const u32 fsm_wrapper_payload[] = {
+		// 0x00: addiu $sp, $sp, -32
+		0x27BDFFE0,
+		// 0x04: sw $ra, 0($sp)
+		0xAFBF0000,
+		// 0x08: sw $a0, 4($sp)               ; save bs ptr
+		0xAFA40004,
+		// 0x0c: lw $a0, 4($sp)               ; (re)load bs
+		0x8FA40004,
+		// 0x10: jal battle_input_dispatch    ; CALL 1 (pad-0, current=Cless)
+		EncodeJal(PSP_LOAD_BASE + BATTLE_INPUT_DISPATCH_ADDR),
+		// 0x14: nop
+		0x00000000,
+		// --- Set "is-2nd-call" flag at 0x09F00624 so per-char wrapper skips
+		//     non-Mint chars during CALL 2 (prevents doubled ticks).
+		// 0x18: lui $t8, 0x09F0
+		0x3C1809F0,
+		// 0x1c: addiu $t9, $0, 1
+		0x24190001,
+		// 0x20: sw $t9, 0x624($t8)            ; flag = 1
+		0xAF190624,
+		// 0x24: lw $a0, 4($sp)
+		0x8FA40004,
+		// 0x28: lb $t9, 0x627($a0)            ; coop_flag
+		// 0x2c: beq $t9, $0, .epilogue       ; (offset 0x36 → instr 66)
+		0x13200036,
+		// 0x24: nop
+		0x00000000,
+		// 0x28: lb $t9, 0x62A($a0)            ; coop_char2 slot
+		0x8099062A,
+		// 0x2c: sll $t9, $t9, 2
+		0x00194880,
+		// 0x30: addu $t9, $t9, $a0           ; bs + slot*4
+		0x03244821,
+		// 0x34: lw $t9, 0xFC0($t9)            ; char_ptrs[slot]
+		0x8F390FC0,
+		// 0x44: beq $t9, $0, .epilogue       ; null Mint (offset 0x30 → instr 66)
+		0x13200030,
+		// 0x3c: nop
+		0x00000000,
+		// 0x40: lb $t8, 5($t9)                ; Mint's char_id
+		0x83380005,
+		// 0x44: lb $t9, 0x5F8($a0)            ; current_char_idx
+		0x809905F8,
+		// 0x48: lui $t7, 0x09F0
+		0x3C0F09F0,
+		// 0x4c: sb $t9, 0x600($t7)            ; save cur_idx @ 0x09F00600
+		0xA1F90600,
+		// 0x50: sb $t8, 0x5F8($a0)            ; cur_idx = Mint's char_id
+		0xA09805F8,
+		// 0x54: lui $t7, 0x08A4
+		0x3C0F08A4,
+		// 0x58: addiu $t7, $t7, 0xB7AC        ; t7 = g_player_input @ 0x08A3B7AC
+		0x25EFB7AC,
+		// 0x5c: lw $t8, 0($t7)                ; save held
+		0x8DF80000,
+		// 0x60: lui $t6, 0x09F0
+		0x3C0E09F0,
+		// 0x64: sw $t8, 0x610($t6)            ; → 0x09F00610
+		0xADD80610,
+		// 0x68: lw $t8, 4($t7)                ; save btn_make
+		0x8DF80004,
+		// 0x6c: sw $t8, 0x614($t6)
+		0xADD80614,
+		// 0x70: lw $t8, 8($t7)                ; save btn_press
+		0x8DF80008,
+		// 0x74: sw $t8, 0x618($t6)
+		0xADD80618,
+		// 0x78: lui $t6, 0x0E00
+		0x3C0E0E00,
+		// 0x7c: lw $t8, 0x14($t6)             ; pad-1 cur buttons
+		0x8DD80014,
+		// 0x80: lui $t5, 0xFFFC
+		0x3C0DFFFC,
+		// 0x84: ori $t5, $t5, 0xFFFF          ; mask = 0xFFFCFFFF
+		0x35ADFFFF,
+		// 0x88: and $t8, $t8, $t5             ; t8 = cur (masked)
+		0x030DC024,
+		// 0x8c: lui $t6, 0x09F0
+		0x3C0E09F0,
+		// 0x90: lw $t4, 0x61C($t6)            ; t4 = prev pad-1 buttons
+		0x8DCC061C,
+		// 0x94: xor $t3, $t8, $t4
+		0x030C5826,
+		// 0x98: and $t3, $t3, $t8             ; t3 = btn_make = (cur ^ prev) & cur
+		0x01785824,
+		// 0x9c: sw $t8, 0x61C($t6)            ; update prev = cur
+		0xADD8061C,
+		// 0xa0: sw $t8, 0($t7)                ; g_player_input.held = cur
+		0xADF80000,
+		// 0xa4: sw $t3, 4($t7)                ; g_player_input.btn_make = computed
+		0xADEB0004,
+		// 0xa8: sw $t3, 8($t7)                ; g_player_input.btn_press = btn_make
+		0xADEB0008,
+		// 0xac: lw $t8, 0x604($t6)            ; dual-FSM 2nd-call counter
+		0x8DD80604,
+		// 0xb0: addiu $t8, $t8, 1
+		0x27180001,
+		// 0xb4: sw $t8, 0x604($t6)
+		0xADD80604,
+		// 0xb8: lw $a0, 4($sp)
+		0x8FA40004,
+		// 0xbc: jal battle_input_dispatch    ; CALL 2 (pad-1, current=Mint)
+		EncodeJal(PSP_LOAD_BASE + BATTLE_INPUT_DISPATCH_ADDR),
+		// 0xc0: nop
+		0x00000000,
+		// --- Clear is-2nd-call flag now that CALL 2 is done.
+		// 0xc4: lui $t8, 0x09F0
+		0x3C1809F0,
+		// 0xc8: sw $0, 0x624($t8)
+		0xAF000624,
+		// 0xcc: lw $a0, 4($sp)
+		0x8FA40004,
+		// 0xc8: lui $t7, 0x09F0
+		0x3C0F09F0,
+		// 0xcc: lb $t9, 0x600($t7)            ; saved cur_idx
+		0x81F90600,
+		// 0xd0: sb $t9, 0x5F8($a0)            ; restore cur_idx
+		0xA09905F8,
+		// 0xd4: lui $t7, 0x08A4
+		0x3C0F08A4,
+		// 0xd8: addiu $t7, $t7, 0xB7AC
+		0x25EFB7AC,
+		// 0xdc: lui $t6, 0x09F0
+		0x3C0E09F0,
+		// 0xe0: lw $t8, 0x610($t6)            ; restore held
+		0x8DD80610,
+		// 0xe4: sw $t8, 0($t7)
+		0xADF80000,
+		// 0xe8: lw $t8, 0x614($t6)            ; restore btn_make
+		0x8DD80614,
+		// 0xec: sw $t8, 4($t7)
+		0xADF80004,
+		// 0xf0: lw $t8, 0x618($t6)            ; restore btn_press
+		0x8DD80618,
+		// 0xf4: sw $t8, 8($t7)
+		0xADF80008,
+		// 0xf8: .epilogue: lw $ra, 0($sp)
+		0x8FBF0000,
+		// 0xfc: jr $ra
+		0x03E00008,
+		// 0x100: addiu $sp, $sp, 32           ; delay slot
+		0x27BD0020,
+	};
+	static_assert(ARRAY_SIZE(fsm_wrapper_payload) == 69, "fsm_wrapper_payload size changed; recompute branch offsets");
+
+	for (size_t i = 0; i < ARRAY_SIZE(fsm_wrapper_payload); ++i) {
+		Memory::Write_U32(fsm_wrapper_payload[i], FSM_WRAPPER_ADDR + (u32)(i * 4));
+	}
+	INFO_LOG(Log::Loader, "TalesMp: fsm_wrapper written + verified at %08x (%zu instructions, %zu bytes)",
+		FSM_WRAPPER_ADDR, ARRAY_SIZE(fsm_wrapper_payload), ARRAY_SIZE(fsm_wrapper_payload) * 4);
+
+	// Redirect the FSM call site in battle_main_loop.
+	const u32 fsm_site_runtime = PSP_LOAD_BASE + FSM_CALLSITE;
+	const u32 expected_fsm_jal = EncodeJal(PSP_LOAD_BASE + BATTLE_INPUT_DISPATCH_ADDR);
+	const u32 expected_fsm_wrapper_jal = EncodeJal(FSM_WRAPPER_ADDR);
+	const u32 fsm_actual = Memory::Read_U32(fsm_site_runtime);
+	INFO_LOG(Log::Loader, "TalesMp: fsm callsite @ %08x: got=%08x  (orig=%08x wrapper=%08x)",
+		fsm_site_runtime, fsm_actual, expected_fsm_jal, expected_fsm_wrapper_jal);
+	// DIAGNOSTIC: install a MINIMAL passthrough wrapper at 0x09F00400 instead
+	// of the dual-FSM wrapper at 0x09F00200. The minimal wrapper does nothing
+	// but call battle_input_dispatch once and return. If THIS crashes, the
+	// wrapper concept itself is broken (not the dual-call).
+	static constexpr u32 FSM_MIN_WRAPPER_ADDR = 0x09F00800;
+	static const u32 fsm_min_wrapper[] = {
+		0x27BDFFF0,                       // addiu $sp, -16
+		0xAFBF0000,                       // sw $ra, 0($sp)
+		EncodeJal(PSP_LOAD_BASE + BATTLE_INPUT_DISPATCH_ADDR),  // jal battle_input_dispatch
+		0x00000000,                       // nop (delay slot)
+		0x8FBF0000,                       // lw $ra, 0($sp)
+		0x03E00008,                       // jr $ra
+		0x27BD0010,                       // addiu $sp, 16 (delay slot)
+	};
+	for (size_t i = 0; i < ARRAY_SIZE(fsm_min_wrapper); ++i) {
+		Memory::Write_U32(fsm_min_wrapper[i], FSM_MIN_WRAPPER_ADDR + (u32)(i * 4));
+	}
+	const u32 expected_min_wrapper_jal = EncodeJal(FSM_MIN_WRAPPER_ADDR);
+	INFO_LOG(Log::Loader, "TalesMp: minimal-wrapper installed @ %08x", FSM_MIN_WRAPPER_ADDR);
+	if (fsm_actual == expected_fsm_jal || fsm_actual == expected_fsm_wrapper_jal || fsm_actual == expected_min_wrapper_jal) {
+		Memory::Write_U32(expected_min_wrapper_jal, fsm_site_runtime);
+		if (MIPSComp::jit) {
+			MIPSComp::jit->InvalidateCacheAt(fsm_site_runtime, 4);
+		}
+		INFO_LOG(Log::Loader, "TalesMp: fsm callsite redirected to MINIMAL wrapper at %08x", FSM_MIN_WRAPPER_ADDR);
+	} else {
+		ERROR_LOG(Log::Loader, "TalesMp: fsm callsite mismatch; not touching");
+	}
+
 	INFO_LOG(Log::Loader, "TalesMp: patch installed. Per-pad routing active "
 		"(char_idx=0 -> original; char_idx 1..7 -> MMIO @ 0x0E0000_N0)");
+
+	// One-shot diagnostic: read the lui+lw at the input getter functions to
+	// resolve their actual runtime data addresses. IDA shows g_player_input
+	// fields at 0x4630XX but those are pre-relocation; the PSP loader applies
+	// a fixed delta and live code uses the resolved addresses.
+	const u32 getter_addrs[] = {
+		PSP_LOAD_BASE + 0xE54D0,  // input_get_btn_make
+		PSP_LOAD_BASE + 0xE5500,  // input_get_btn_press
+		PSP_LOAD_BASE + 0xE54A0,  // input_get_btn_held
+	};
+	const char* getter_names[] = { "input_get_btn_make", "input_get_btn_press", "input_get_btn_held" };
+	for (int g = 0; g < 3; g++) {
+		const u32 base = getter_addrs[g];
+		for (int i = 0; i < 12; i++) {
+			const u32 a = base + (u32)(i * 4);
+			const u32 v = Memory::IsValidAddress(a) ? Memory::Read_U32(a) : 0xDEADBEEF;
+			INFO_LOG(Log::Loader, "TalesMp: %s[%d] @ %08x = %08x", getter_names[g], i, a, v);
+		}
+	}
+
 	g_patches_applied = true;
 	return true;
 }

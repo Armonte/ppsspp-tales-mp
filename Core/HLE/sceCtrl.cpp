@@ -196,9 +196,12 @@ static void __CtrlUpdateLatch()
 			if (Memory::IsValidAddress(0x09F00500)) {
 				const u32 w_total = Memory::Read_U32(0x09F00500);
 				const u32 w_slot1 = Memory::Read_U32(0x09F00504);
+				const u32 w_swap = Memory::Read_U32(0x09F00508);
 				const u32 w_last_s1 = Memory::Read_U8(0x09F00520);
-				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1_hits=%u last_$s1=%u",
-					w_total, w_slot1, w_last_s1);
+				const u32 w_mint_id = Memory::Read_U8(0x09F00524);
+				const u32 w_mint_mode = Memory::Read_U8(0x09F00525);
+				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1=%u swap=%u last_$s1=%u  Mint(id=%u,mode_before=%u)",
+					w_total, w_slot1, w_swap, w_last_s1, w_mint_id, w_mint_mode);
 			}
 			if (Memory::IsValidAddress(0x09F00400)) {
 				const u32 count = Memory::Read_U32(0x09F00400);
