@@ -63,6 +63,10 @@ static const char *kVirtualPadLabels[NUM_VIRTUAL_PADS] = {
 	"Pad 2 (virtual)",
 	"Pad 3 (virtual)",
 	"Pad 4 (virtual)",
+	"Pad 5 (virtual)",
+	"Pad 6 (virtual)",
+	"Pad 7 (virtual)",
+	"Pad 8 (virtual)",
 };
 
 class SingleControlMapper : public UI::LinearLayout {

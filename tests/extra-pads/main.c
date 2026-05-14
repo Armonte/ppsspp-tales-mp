@@ -17,6 +17,7 @@ PSP_MODULE_INFO("ExtraPadsTest", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
 
 #define EXTRA_PADS_BASE 0x0E000000
+#define NUM_PADS 8
 
 // Layout matches PPSSPP's internal CtrlData and what sceCtrlReadBufferPositive writes.
 typedef struct {
@@ -63,9 +64,9 @@ int main(int argc, char *argv[]) {
 
     int sample = 0;
     while (sample < 60) {  // ~1 second worth of samples
-        // Snapshot the four MMIO entries.
-        ExtraPad snap[4];
-        for (int i = 0; i < 4; ++i) snap[i] = pads[i];
+        // Snapshot all MMIO entries.
+        ExtraPad snap[NUM_PADS];
+        for (int i = 0; i < NUM_PADS; ++i) snap[i] = pads[i];
 
         // Cross-check pad 0 against sceCtrl.
         SceCtrlData sce;
@@ -74,14 +75,14 @@ int main(int argc, char *argv[]) {
         // On-screen for interactive runs.
         pspDebugScreenSetXY(0, 0);
         pspDebugScreenPrintf("extra-pads test sample=%d\n", sample);
-        for (int i = 0; i < 4; ++i) print_pad(i, &snap[i]);
+        for (int i = 0; i < NUM_PADS; ++i) print_pad(i, &snap[i]);
         pspDebugScreenPrintf("--------------------------------------------------\n");
         pspDebugScreenPrintf("sceCtrl  frame=%08x buttons=%08lx Lx=%3u Ly=%3u\n",
             sce.TimeStamp, sce.Buttons, sce.Lx, sce.Ly);
 
         // Stdout for headless runs (printf goes via Kprintf in pspsdk).
         printf("SAMPLE %d\n", sample);
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < NUM_PADS; ++i) {
             printf("  PAD%d frame=%08lx buttons=%08lx Lx=%3u Ly=%3u Rx=%3u Ry=%3u\n",
                 i, snap[i].frame, snap[i].buttons, snap[i].lx, snap[i].ly, snap[i].rx, snap[i].ry);
         }
