@@ -149,6 +149,8 @@ int printUsage(const char *progname, const char *reason)
 	fprintf(stderr, "  --dump-screenshot=FILE save the final frame as a BMP\n");
 	fprintf(stderr, "  --mash                auto-press CIRCLE/CROSS/START to clear cutscenes\n");
 	fprintf(stderr, "  --save-state-on-exit=FILE  dump SaveState to FILE before exiting\n");
+	fprintf(stderr, "  --hold=B1,B2,...      hold buttons every frame (circle,cross,square,triangle,\n");
+	fprintf(stderr, "                          start,select,l,r,up,down,left,right)\n");
 	fprintf(stderr, "  --max-mse=NUMBER      maximum allowed MSE error for screenshot\n");
 	fprintf(stderr, "  --timeout=SECONDS     abort test it if takes longer than SECONDS\n");
 
@@ -184,8 +186,42 @@ struct AutoTestOptions {
 	bool verbose : 1;
 	bool bench : 1;
 	bool mashInput : 1;
+	u32 holdButtons;            // bitmask held every frame ("--hold=cross,down")
 	const char *saveStateOnExit;
 };
+
+// Parse a comma-separated list of PSP button names into a bitmask.
+static u32 ParseButtonList(const char *s) {
+	struct { const char *name; u32 bit; } map[] = {
+		{ "cross",    0x4000 }, { "x",       0x4000 },
+		{ "circle",   0x2000 }, { "o",       0x2000 },
+		{ "square",   0x8000 }, { "[]",      0x8000 },
+		{ "triangle", 0x1000 }, { "tri",     0x1000 },
+		{ "start",    0x0008 },
+		{ "select",   0x0001 },
+		{ "l",        0x0100 }, { "lt",      0x0100 },
+		{ "r",        0x0200 }, { "rt",      0x0200 },
+		{ "up",       0x0010 },
+		{ "down",     0x0040 },
+		{ "left",     0x0080 },
+		{ "right",    0x0020 },
+	};
+	u32 mask = 0;
+	char buf[64];
+	while (*s) {
+		const char *comma = strchr(s, ',');
+		size_t n = comma ? (size_t)(comma - s) : strlen(s);
+		if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+		for (size_t i = 0; i < n; ++i) buf[i] = (char)tolower((unsigned char)s[i]);
+		buf[n] = 0;
+		for (auto &e : map) {
+			if (!strcmp(buf, e.name)) { mask |= e.bit; break; }
+		}
+		if (!comma) break;
+		s = comma + 1;
+	}
+	return mask;
+}
 
 bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const AutoTestOptions &opt) {
 	// Kinda ugly, trying to guesstimate the test name from filename...
@@ -248,6 +284,10 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 			headlessHost->SwapBuffers();
 			// Dump latest frame to disk if --dump-screenshot was set.
 			headlessHost->SendDebugScreenshot(nullptr, 0, 0);
+			// Hold a fixed button set every frame, if requested.
+			if (opt.holdButtons) {
+				__CtrlUpdateButtons(opt.holdButtons, ~opt.holdButtons & 0xFFFFFFFFu);
+			}
 			// Auto-mash if requested. Tales title-screen uses exact-equal
 			// button checks (e.g. `== 0x2000` for CIRCLE), so we cycle each
 			// button alone with a release frame between presses:
@@ -506,6 +546,8 @@ int main(int argc, const char* argv[])
 			testOptions.mashInput = true;
 		else if (!strncmp(argv[i], "--save-state-on-exit=", strlen("--save-state-on-exit=")) && strlen(argv[i]) > strlen("--save-state-on-exit="))
 			testOptions.saveStateOnExit = argv[i] + strlen("--save-state-on-exit=");
+		else if (!strncmp(argv[i], "--hold=", strlen("--hold=")) && strlen(argv[i]) > strlen("--hold="))
+			testOptions.holdButtons = ParseButtonList(argv[i] + strlen("--hold="));
 		else if (!strncmp(argv[i], "--timeout=", strlen("--timeout=")) && strlen(argv[i]) > strlen("--timeout="))
 			testOptions.timeout = strtod(argv[i] + strlen("--timeout="), nullptr);
 		else if (!strncmp(argv[i], "--max-mse=", strlen("--max-mse=")) && strlen(argv[i]) > strlen("--max-mse="))
