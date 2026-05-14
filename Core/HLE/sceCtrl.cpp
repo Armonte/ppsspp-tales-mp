@@ -184,15 +184,25 @@ static void __CtrlUpdateLatch()
 			last_logged_buttons1 = buttons1;
 		}
 		// Diagnostic: periodically log hook state from MIPS-side scratch.
-		//   0x09F00100 = current_char_idx (u8) at last hook invocation
-		//   0x09F00104 = total hook invocation count (u32)
+		//   0x09F00400 = main hook (input_get_btn_make) total invocation count
+		//   0x09F00404 = current_char_idx (u8) at last main-hook invocation
+		//   0x09F00500 = char_update_wrapper total invocation count
+		//   0x09F00504 = char_update_wrapper slot-1 hits (pre-coop-flag check)
+		//   0x09F00520 = last $s1 (party slot idx) seen by wrapper
 		static int diag_ticks = 0;
 		static u32 last_count = 0;
 		if (++diag_ticks >= 60) {  // every 60 VBlanks ~= 1 second
 			diag_ticks = 0;
-			if (Memory::IsValidAddress(0x09F00100)) {
-				const u32 last_char_idx = Memory::Read_U8(0x09F00100);
-				const u32 count = Memory::Read_U32(0x09F00104);
+			if (Memory::IsValidAddress(0x09F00500)) {
+				const u32 w_total = Memory::Read_U32(0x09F00500);
+				const u32 w_slot1 = Memory::Read_U32(0x09F00504);
+				const u32 w_last_s1 = Memory::Read_U8(0x09F00520);
+				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1_hits=%u last_$s1=%u",
+					w_total, w_slot1, w_last_s1);
+			}
+			if (Memory::IsValidAddress(0x09F00400)) {
+				const u32 count = Memory::Read_U32(0x09F00400);
+				const u32 last_char_idx = Memory::Read_U8(0x09F00404);
 				if (count != last_count) {
 					INFO_LOG(Log::sceCtrl, "TalesMp diag: hook fired %u times, last char_idx=%u, MMIO pad %u buttons=%08x",
 						count, last_char_idx, last_char_idx,
