@@ -12,8 +12,10 @@
 
 namespace TalesMp {
 
-// Constants exported for ReadHookCounter() — see ApplyPatches() for details.
-static constexpr u32 HOOK_COUNTER_ADDR = 0x09F00100;
+// prev_buttons cache used by the hook (8 pads × 4 bytes, indexed by current_char_idx).
+// Reading any pad's cache slot is enough to see whether the hook ever fired
+// (non-zero means at least one input_get_btn_make call hit the hook for that pad).
+static constexpr u32 HOOK_PREV_BUTTONS_CACHE = 0x09F00200;
 static bool g_patches_applied = false;
 
 // Where the EBOOT lives at runtime. The PSP loader applies relocations to
@@ -88,25 +90,78 @@ bool ApplyPatches() {
 		return false;
 	}
 
-	// MIPS hook payload — see encoding rationale at the top of this file.
-	// 6 instructions: increment a counter at HOOK_COUNTER_ADDR, then tail-call
-	// input_get_btn_make so existing semantics are preserved. The counter
-	// proves the JIT invalidation worked: if zero after a run, the JIT is
-	// still executing pre-patch translation.
-	static constexpr u32 HOOK_ADDR = 0x09F00000;            // top of free user RAM
-	// HOOK_COUNTER_ADDR is file-scope so ReadHookCounter() can see it.
+	// MIPS hook payload — per-pad input router.
+	//
+	// $s2 holds battle_state pointer at every JAL site inside battle_input_dispatch.
+	// We read current_char_idx (BattleState +0x5F8). Pad 0 tail-calls the original
+	// input_get_btn_make (exact P1 semantics preserved). Pads 1-7 read raw buttons
+	// from the MMIO mirror at 0x0E000000 + N*16, compute btn_make = (cur^prev)&cur
+	// using a per-pad prev_buttons cache at 0x09F00200..0x09F0021F (8 pads x 4B).
+	// Pad index >= 8 returns 0 (safety).
+	//
+	// Counter at 0x09F00100 keeps incrementing for diagnostic use, but only on
+	// the pad-1..7 path; pad 0 tail-call skips it. To avoid that asymmetry, we
+	// drop the counter entirely from this revision — ReadHookCounter still works
+	// but now reads the prev_buttons cache for pad 0 (4 bytes).
+	static constexpr u32 HOOK_ADDR = 0x09F00000;
 	static const u32 hook_payload[] = {
-		0x3C0809F0,  // lui   $t0, 0x09F0           ; t0 = 0x09F00000
-		0x8D090100,  // lw    $t1, 0x100($t0)       ; t1 = *(0x09F00100)
-		0x25290001,  // addiu $t1, $t1, 1           ; ++counter
-		0xAD090100,  // sw    $t1, 0x100($t0)       ; *(0x09F00100) = t1
-		0x0A23A534,  // j     0x088E94D0            ; tail-call input_get_btn_make
-		0x00000000,  // nop                          ; delay slot
+		// 00: lbu   $t0, 0x5F8($s2)          ; t0 = current_char_idx (u8)
+		0x924805F8,
+		// 04: beqz  $t0, .pad0  (offset +22)
+		0x11000016,
+		// 08: nop                              ; delay slot for beqz
+		0x00000000,
+		// 0c: sltiu $t1, $t0, 8                ; t1 = (char_idx < 8)
+		0x2D090008,
+		// 10: bnez  $t1, .valid_pad (offset +3)
+		0x15200003,
+		// 14: nop                              ; delay slot
+		0x00000000,
+		// 18: jr    $ra                        ; out-of-range pad → return 0
+		0x03E00008,
+		// 1c: or    $v0, $0, $0                ; delay slot: v0 = 0
+		0x00001025,
+		// 20: sll   $t1, $t0, 4                ; .valid_pad: t1 = idx * 16
+		0x00084900,
+		// 24: lui   $t2, 0x0E00                ; t2 = 0x0E000000
+		0x3C0A0E00,
+		// 28: addu  $t1, $t2, $t1              ; t1 = 0x0E000000 + idx*16
+		0x01494821,
+		// 2c: lw    $t2, 4($t1)                ; t2 = pad->Buttons
+		0x8D2A0004,
+		// 30: lui   $t3, 0xFFFC                ; t3 = 0xFFFC0000
+		0x3C0BFFFC,
+		// 34: ori   $t3, $t3, 0xFFFF           ; t3 = 0xFFFCFFFF (~HOME|HOLD)
+		0x356BFFFF,
+		// 38: and   $t2, $t2, $t3              ; t2 = buttons & ~0x30000
+		0x014B5024,
+		// 3c: lui   $t3, 0x09F0                ; t3 = 0x09F00000 (cache base)
+		0x3C0B09F0,
+		// 40: sll   $t4, $t0, 2                ; t4 = idx * 4
+		0x00086080,
+		// 44: addu  $t3, $t3, $t4              ; t3 = cache_base + idx*4
+		0x016C5821,
+		// 48: lw    $t4, 0x200($t3)            ; t4 = prev_buttons[idx]
+		0x8D6C0200,
+		// 4c: xor   $t5, $t2, $t4              ; t5 = cur ^ prev
+		0x014C6826,
+		// 50: and   $t5, $t5, $t2              ; t5 = btn_make = (cur^prev) & cur
+		0x01AA6824,
+		// 54: sw    $t2, 0x200($t3)            ; prev_buttons[idx] = cur
+		0xAD6A0200,
+		// 58: jr    $ra
+		0x03E00008,
+		// 5c: or    $v0, $t5, $0               ; delay slot: v0 = btn_make
+		0x01A01025,
+		// 60: j     0x088E94D0                 ; .pad0: tail-call original
+		0x0A23A534,
+		// 64: nop                              ; delay slot
+		0x00000000,
 	};
 
 	// Safety: hook region must be empty (read as zero). If not, we'd be
 	// overwriting something the game is using.
-	for (size_t i = 0; i < ARRAY_SIZE(hook_payload) + 1; ++i) {  // +1 for counter slot
+	for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
 		const u32 a = HOOK_ADDR + (u32)(i * 4);
 		const u32 v = Memory::Read_U32(a);
 		if (v != 0) {
@@ -114,9 +169,8 @@ bool ApplyPatches() {
 			return false;
 		}
 	}
-	const u32 counter_before = Memory::Read_U32(HOOK_COUNTER_ADDR);
-	INFO_LOG(Log::Loader, "TalesMp: hook region clean. Counter @ %08x = %u (pre-patch)",
-		HOOK_COUNTER_ADDR, counter_before);
+	INFO_LOG(Log::Loader, "TalesMp: hook region clean (%zu instructions = %zu bytes at %08x)",
+		ARRAY_SIZE(hook_payload), ARRAY_SIZE(hook_payload) * 4, HOOK_ADDR);
 
 	// Write hook payload to PSP RAM.
 	for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
@@ -159,16 +213,25 @@ bool ApplyPatches() {
 		WARN_LOG(Log::Loader, "TalesMp: no JIT instance? skipping cache invalidate.");
 	}
 
-	INFO_LOG(Log::Loader, "TalesMp: patch installed. Counter at %08x ticks per input_get_btn_make call.",
-		HOOK_COUNTER_ADDR);
+	INFO_LOG(Log::Loader, "TalesMp: patch installed. Per-pad routing active "
+		"(char_idx=0 -> original; char_idx 1..7 -> MMIO @ 0x0E0000_N0)");
 	g_patches_applied = true;
 	return true;
 }
 
 u32 ReadHookCounter() {
+	// Now returns "did the hook ever fire for char_idx 1..7" — sum of non-zero
+	// prev_buttons cache entries. Cleaner than a single counter that would only
+	// tick on the pads-1..7 path anyway.
 	if (!g_patches_applied) return 0;
-	if (!Memory::IsValidAddress(HOOK_COUNTER_ADDR)) return 0;
-	return Memory::Read_U32(HOOK_COUNTER_ADDR);
+	u32 total = 0;
+	for (int i = 1; i < 8; ++i) {
+		const u32 a = HOOK_PREV_BUTTONS_CACHE + (u32)(i * 4);
+		if (Memory::IsValidAddress(a) && Memory::Read_U32(a) != 0) {
+			total++;
+		}
+	}
+	return total;
 }
 
 void LogHookStatus() {
@@ -176,9 +239,9 @@ void LogHookStatus() {
 		INFO_LOG(Log::Loader, "TalesMp: status = patches not applied (game not matched)");
 		return;
 	}
-	const u32 counter = ReadHookCounter();
-	INFO_LOG(Log::Loader, "TalesMp: status = patches installed; hook fired %u times this session%s",
-		counter, counter == 0 ? " (never reached battle code)" : "");
+	const u32 pads_seen = ReadHookCounter();
+	INFO_LOG(Log::Loader, "TalesMp: status = patches installed; %u/7 virtual pads saw non-zero input%s",
+		pads_seen, pads_seen == 0 ? " (battle code not reached or P1-only play)" : "");
 	// Verify the first patch site still holds our redirected JAL so we know
 	// nobody overwrote it during play. Helps catch JIT-invalidation issues.
 	if (Memory::IsValidAddress(PSP_LOAD_BASE + BTN_MAKE_CALLSITES[0])) {
