@@ -1,2 +1,7 @@
-# Per-run output captured by the smoke test script; not committed.
+# Per-run captures; only milestone PNGs are committed.
 run-*.log
+*.bmp
+mash-snap-*.png
+mash-final.png
+last-frame.png
+per-pad-frame.png
