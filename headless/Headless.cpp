@@ -271,13 +271,17 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 					__CtrlUpdateButtons(want, all_mash_buttons & ~want);
 				else
 					__CtrlUpdateButtons(0, all_mash_buttons);
-				// Periodically copy the current dump to a snapshot-N.bmp file.
-				// 60 frames ~= 1 second of in-game time. Every 300 frames = 5s.
+				// Periodically copy the current frame to a snapshot-N.bmp file.
+				// Save the user's dump-screenshot target, switch briefly to the
+				// snap path, capture, then restore — so --dump-screenshot=FILE
+				// keeps tracking the latest frame on top of mash captures.
 				if ((mash_frame % 300) == 0 && headlessHost) {
 					char fname[64];
 					snprintf(fname, sizeof(fname), "tests/talesmp-output/mash-snap-%04d.bmp", mash_frame / 60);
+					const Path original = headlessHost->GetDumpScreenshot();
 					headlessHost->SetDumpScreenshot(Path(std::string(fname)));
 					headlessHost->SendDebugScreenshot(nullptr, 0, 0);
+					headlessHost->SetDumpScreenshot(original);
 				}
 			}
 		}

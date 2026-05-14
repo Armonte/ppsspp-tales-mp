@@ -60,6 +60,7 @@ public:
 	void SetDumpScreenshot(const Path &filename) {
 		dumpScreenshotPath_ = filename;
 	}
+	const Path &GetDumpScreenshot() const { return dumpScreenshotPath_; }
 
 	void SendDebugScreenshot(const u8 *pixbuf, u32 w, u32 h);
 
