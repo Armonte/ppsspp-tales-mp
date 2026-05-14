@@ -54,6 +54,7 @@
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/HLE/sceKernel.h"
+#include "Core/HLE/sceTalesMp.h"
 #include "Core/HLE/sceKernelModule.h"
 #include "Core/HLE/sceUtility.h"
 #include "Core/HLE/sceSas.h"
@@ -1380,6 +1381,10 @@ int g_screenshotFailures;
 
 			hasLoadedState = true;
 			Core_ResetException();
+			// Re-apply TalesMp patches if applicable. Savestates restore the
+			// game's RAM (including the EBOOT), which overwrites our MIPS hook
+			// installed at game load. Re-patch and invalidate JIT.
+			TalesMp::ApplyPatches();
 
 			if (op.slot >= 0)
 				message = SlotPrefix(op.slot) + message;

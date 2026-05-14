@@ -9,6 +9,7 @@
 #include "Common/Log.h"
 #include "Core/MemMap.h"
 #include "Core/MIPS/JitCommon/JitCommon.h"
+#include "Core/Config.h"
 
 namespace TalesMp {
 
@@ -52,35 +53,41 @@ static constexpr u32 EncodeJal(u32 target) {
 
 bool ApplyPatches() {
 	INFO_LOG(Log::Loader, "TalesMp: applying patches for Tales of Phantasia: NDX");
+	INFO_LOG(Log::Loader, "TalesMp: extra-pads state: bEnableExtraPads=%d m_pExtraPadMMIO=%p",
+		(int)g_Config.bEnableExtraPads, (void*)Memory::m_pExtraPadMMIO);
 
-	// Sanity check the load base by reading the first JAL we expect at site 0.
-	// Expected: jal 0xE54D0 == 0x0C039574 (relative to PSP_LOAD_BASE=0x08804000,
-	// runtime target = 0x088E94D0; jal encoding uses (target>>2)&0x03FFFFFF
-	// so 0x088E94D0 >> 2 = 0x02239574, masked = 0x02239574, ored with 0x0C000000
-	// = 0x0E239574). We're checking against the EBOOT loaded at PSP_LOAD_BASE.
+	// Accept two states at the first site:
+	//  - original JAL to input_get_btn_make: fresh boot, we need to install everything.
+	//  - our hook JAL: re-apply path (after savestate load). We need to rewrite the
+	//    hook payload (BSS region got wiped by the state restore) and re-invalidate JIT.
 	const u32 first_site_runtime = PSP_LOAD_BASE + BTN_MAKE_CALLSITES[0];
 	const u32 expected_jal = EncodeJal(PSP_LOAD_BASE + INPUT_GET_BTN_MAKE_ADDR);
+	const u32 expected_jal_to_hook = EncodeJal(0x09F00000);
 	const u32 actual = Memory::Read_U32(first_site_runtime);
-	INFO_LOG(Log::Loader, "TalesMp: site[0]=%08x got=%08x expected=%08x",
-		first_site_runtime, actual, expected_jal);
+	INFO_LOG(Log::Loader, "TalesMp: site[0]=%08x got=%08x  (expected_orig=%08x expected_hook=%08x)",
+		first_site_runtime, actual, expected_jal, expected_jal_to_hook);
 
-	if (actual != expected_jal) {
-		ERROR_LOG(Log::Loader, "TalesMp: instruction mismatch at first patch site. "
-			"Either the EBOOT isn't loaded yet, the load base is different, or "
-			"this is a different game version. Aborting patcher.");
+	if (actual != expected_jal && actual != expected_jal_to_hook) {
+		ERROR_LOG(Log::Loader, "TalesMp: instruction at first patch site doesn't match either "
+			"the original JAL (%08x) or our hook JAL (%08x). Aborting patcher.",
+			expected_jal, expected_jal_to_hook);
 		return false;
+	}
+	const bool re_apply = (actual == expected_jal_to_hook);
+	if (re_apply) {
+		INFO_LOG(Log::Loader, "TalesMp: site[0] already hooked — re-applying after savestate load");
 	}
 
 	int matched = 0, missed = 0;
 	for (u32 site : BTN_MAKE_CALLSITES) {
 		const u32 runtime_addr = PSP_LOAD_BASE + site;
 		const u32 instr = Memory::Read_U32(runtime_addr);
-		if (instr == expected_jal) {
+		if (instr == expected_jal || instr == expected_jal_to_hook) {
 			matched++;
 		} else {
 			missed++;
-			WARN_LOG(Log::Loader, "TalesMp:  site %08x got %08x, expected %08x",
-				runtime_addr, instr, expected_jal);
+			WARN_LOG(Log::Loader, "TalesMp:  site %08x got %08x, expected %08x or %08x",
+				runtime_addr, instr, expected_jal, expected_jal_to_hook);
 		}
 	}
 	INFO_LOG(Log::Loader, "TalesMp: pre-flight ok %d/%d sites%s",
@@ -107,9 +114,21 @@ bool ApplyPatches() {
 	static const u32 hook_payload[] = {
 		// 00: lbu   $t0, 0x5F8($s2)          ; t0 = current_char_idx (u8)
 		0x924805F8,
-		// 04: beqz  $t0, .pad0  (offset +22)
+		// 04: lui   $t9, 0x09F0                ; t9 = 0x09F00000 (scratch base)
+		0x3C1909F0,
+		// 08: sb    $t0, 0x100($t9)            ; *(u8*)(0x09F00100) = current_char_idx
+		0xA3280100,
+		// 0c: lw    $t9, 0x104($t9)            ; t9 = invocation counter
+		0x8F390104,
+		// 10: addiu $t9, $t9, 1                ; ++counter
+		0x27390001,
+		// 14: lui   $t1, 0x09F0
+		0x3C0909F0,
+		// 18: sw    $t9, 0x104($t1)            ; *(u32*)(0x09F00104) = counter
+		0xAD390104,
+		// 1c: beqz  $t0, .pad0  (offset = +22 instructions from delay-slot PC = 0x20; target 0x78)
 		0x11000016,
-		// 08: nop                              ; delay slot for beqz
+		// 20: nop                              ; delay slot for beqz
 		0x00000000,
 		// 0c: sltiu $t1, $t0, 8                ; t1 = (char_idx < 8)
 		0x2D090008,
@@ -159,18 +178,23 @@ bool ApplyPatches() {
 		0x00000000,
 	};
 
-	// Safety: hook region must be empty (read as zero). If not, we'd be
-	// overwriting something the game is using.
-	for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
-		const u32 a = HOOK_ADDR + (u32)(i * 4);
-		const u32 v = Memory::Read_U32(a);
-		if (v != 0) {
-			ERROR_LOG(Log::Loader, "TalesMp: hook region @ %08x not zero (got %08x). Aborting.", a, v);
-			return false;
+	// On fresh boot the hook region should be all zeros. On re-apply (after
+	// savestate load), it may contain either our previous payload OR garbage
+	// from the state — either way we'll just overwrite it.
+	if (!re_apply) {
+		for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
+			const u32 a = HOOK_ADDR + (u32)(i * 4);
+			const u32 v = Memory::Read_U32(a);
+			if (v != 0) {
+				ERROR_LOG(Log::Loader, "TalesMp: hook region @ %08x not zero (got %08x). Aborting.", a, v);
+				return false;
+			}
 		}
+		INFO_LOG(Log::Loader, "TalesMp: hook region clean (%zu instructions = %zu bytes at %08x)",
+			ARRAY_SIZE(hook_payload), ARRAY_SIZE(hook_payload) * 4, HOOK_ADDR);
+	} else {
+		INFO_LOG(Log::Loader, "TalesMp: re-apply path, skipping hook-region zero check");
 	}
-	INFO_LOG(Log::Loader, "TalesMp: hook region clean (%zu instructions = %zu bytes at %08x)",
-		ARRAY_SIZE(hook_payload), ARRAY_SIZE(hook_payload) * 4, HOOK_ADDR);
 
 	// Write hook payload to PSP RAM.
 	for (size_t i = 0; i < ARRAY_SIZE(hook_payload); ++i) {
@@ -239,16 +263,54 @@ void LogHookStatus() {
 		INFO_LOG(Log::Loader, "TalesMp: status = patches not applied (game not matched)");
 		return;
 	}
-	const u32 pads_seen = ReadHookCounter();
-	INFO_LOG(Log::Loader, "TalesMp: status = patches installed; %u/7 virtual pads saw non-zero input%s",
-		pads_seen, pads_seen == 0 ? " (battle code not reached or P1-only play)" : "");
-	// Verify the first patch site still holds our redirected JAL so we know
-	// nobody overwrote it during play. Helps catch JIT-invalidation issues.
-	if (Memory::IsValidAddress(PSP_LOAD_BASE + BTN_MAKE_CALLSITES[0])) {
-		const u32 site_now = Memory::Read_U32(PSP_LOAD_BASE + BTN_MAKE_CALLSITES[0]);
+	// Definitive "did the hook fire even once?" check — our payload increments
+	// a counter at 0x09F00104 on EVERY invocation (before any branching).
+	// 0 = hook never ran. Any non-zero value = JIT did translate our patched
+	// JAL and route through our hook.
+	if (Memory::IsValidAddress(0x09F00104)) {
+		const u32 hook_calls = Memory::Read_U32(0x09F00104);
+		const u32 last_idx = Memory::Read_U8(0x09F00100);
+		INFO_LOG(Log::Loader, "TalesMp: HOOK INVOCATIONS = %u  (last char_idx = %u)",
+			hook_calls, last_idx);
+	}
+	// prev_buttons cache snapshot — only ticks NON-ZERO when pad N had any
+	// buttons pressed at the moment the hook last fired for that pad. The
+	// cache slots can be 0 even when the hook has fired thousands of times,
+	// if the bound input was idle. So this isn't a reliable "fired" check —
+	// see the JIT block check below for that.
+	for (int i = 0; i < 8; ++i) {
+		const u32 a = HOOK_PREV_BUTTONS_CACHE + (u32)(i * 4);
+		INFO_LOG(Log::Loader, "TalesMp: prev_buttons[%d] @ %08x = %08x",
+			i, a, Memory::IsValidAddress(a) ? Memory::Read_U32(a) : 0);
+	}
+	// MMIO pad slots — what __CtrlUpdateLatch is publishing for each pad.
+	// If pad N's buttons here are 0 while the user is pressing input bound to
+	// "Pad N+1 (virtual)" in the UI, the binding plumbing is broken.
+	for (int i = 0; i < 8; ++i) {
+		const u32 a = 0x0E000000 + (u32)(i * 16);  // CtrlData layout: u32 timestamp, u32 buttons, ...
+		if (Memory::IsValidAddress(a)) {
+			INFO_LOG(Log::Loader, "TalesMp: mmio_pad[%d] @ %08x  timestamp=%08x buttons=%08x",
+				i, a, Memory::Read_U32(a), Memory::Read_U32(a + 4));
+		}
+	}
+	// JIT-replacement check — PPSSPP's JIT writes a RUNBLOCK opcode
+	// (0x68xxxxxx) over the first instruction of each compiled block. If our
+	// patched JAL site has been replaced by 0x68... then PPSSPP DID compile
+	// our patched code into a JIT block (block id in low bits). When that
+	// block executes, host code runs the JIT translation of our patched JAL,
+	// which calls our hook. So a 0x68... readback here is GOOD.
+	for (size_t s = 0; s < ARRAY_SIZE(BTN_MAKE_CALLSITES); ++s) {
+		const u32 a = PSP_LOAD_BASE + BTN_MAKE_CALLSITES[s];
+		const u32 instr = Memory::IsValidAddress(a) ? Memory::Read_U32(a) : 0;
 		const u32 expected_jal_to_hook = EncodeJal(0x09F00000);
-		INFO_LOG(Log::Loader, "TalesMp: post-run check: site[0] = %08x (%s)", site_now,
-			site_now == expected_jal_to_hook ? "hooked, OK" : "OVERWRITTEN!");
+		const char *what =
+			instr == expected_jal_to_hook                 ? "our JAL, not JIT'd yet" :
+			(instr & 0xFC000000u) == 0x68000000u           ? "JIT block (RUNBLOCK)" :
+			                                                "UNEXPECTED";
+		// Only log if not the expected steady state, OR for the first site.
+		if (s == 0 || what[0] == 'U') {
+			INFO_LOG(Log::Loader, "TalesMp: site[%zu] @ %08x = %08x (%s)", s, a, instr, what);
+		}
 	}
 }
 
