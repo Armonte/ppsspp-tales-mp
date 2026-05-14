@@ -1,0 +1,28 @@
+I TalesMp: hook point reached; disc_id='ULJS00293' module='TOP_NARIKIRI_DUNGEON_R'
+I TalesMp: matched via DISC_ID; invoking patcher
+I TalesMp: applying patches for Tales of Phantasia: NDX
+I TalesMp: site[0]=088145ac got=0e23a534 expected=0e23a534
+D TalesMp:  site 088145ac ok (jal input_get_btn_make)
+D TalesMp:  site 08814670 ok (jal input_get_btn_make)
+D TalesMp:  site 088146a4 ok (jal input_get_btn_make)
+D TalesMp:  site 08814aec ok (jal input_get_btn_make)
+D TalesMp:  site 08814b04 ok (jal input_get_btn_make)
+D TalesMp:  site 08814b4c ok (jal input_get_btn_make)
+D TalesMp:  site 08814e10 ok (jal input_get_btn_make)
+D TalesMp:  site 08814ee0 ok (jal input_get_btn_make)
+D TalesMp:  site 08814f28 ok (jal input_get_btn_make)
+D TalesMp:  site 08815050 ok (jal input_get_btn_make)
+D TalesMp:  site 088150a0 ok (jal input_get_btn_make)
+D TalesMp:  site 08815190 ok (jal input_get_btn_make)
+D TalesMp:  site 088152b8 ok (jal input_get_btn_make)
+D TalesMp:  site 08815310 ok (jal input_get_btn_make)
+D TalesMp:  site 088153f4 ok (jal input_get_btn_make)
+D TalesMp:  site 0881544c ok (jal input_get_btn_make)
+D TalesMp:  site 08815538 ok (jal input_get_btn_make)
+D TalesMp:  site 088156ac ok (jal input_get_btn_make)
+D TalesMp:  site 08815710 ok (jal input_get_btn_make)
+D TalesMp:  site 0881577c ok (jal input_get_btn_make)
+D TalesMp:  site 088157d4 ok (jal input_get_btn_make)
+D TalesMp:  site 08815960 ok (jal input_get_btn_make)
+D TalesMp:  site 088159bc ok (jal input_get_btn_make)
+I TalesMp: pre-flight done. 23/23 sites verified
