@@ -34,12 +34,13 @@ echo "==> Bin:   $BIN"
 echo "==> Log:   $LOG"
 echo
 
-# Run for 10 seconds, full debug log, software renderer (no GPU needed).
-timeout 10 "$BIN" "$ISO" \
+# Run for 10 seconds via headless's own --timeout so PSP_Shutdown fires
+# cleanly (lets us log the hook counter on the way out).
+"$BIN" "$ISO" \
     --graphics=software \
     --timeout=10 \
     -l \
-    > "$LOG" 2>&1
+    > "$LOG" 2>&1 || true
 
 # Surface the interesting lines.
 echo "==> TalesMp log lines:"

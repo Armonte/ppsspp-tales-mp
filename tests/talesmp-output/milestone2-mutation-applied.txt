@@ -1,0 +1,12 @@
+I TalesMp: hook point reached; disc_id='ULJS00293' module='TOP_NARIKIRI_DUNGEON_R'
+I TalesMp: matched via DISC_ID; invoking patcher
+I TalesMp: applying patches for Tales of Phantasia: NDX
+I TalesMp: site[0]=088145ac got=0e23a534 expected=0e23a534
+I TalesMp: pre-flight ok 23/23 sites
+I TalesMp: hook region clean. Counter @ 09f00100 = 0 (pre-patch)
+I TalesMp: hook payload written + verified at 09f00000 (6 instructions, 24 bytes)
+I TalesMp: replacing 23 call sites with jal 09f00000 (encoded 0e7c0000)
+I TalesMp: JIT invalidated 088145ac..088159c0 (5140 bytes)
+I TalesMp: patch installed. Counter at 09f00100 ticks per input_get_btn_make call.
+I TalesMp: status = patches installed; hook fired 0 times this session (never reached battle code)
+I TalesMp: post-run check: site[0] = 0e7c0000 (hooked, OK)
