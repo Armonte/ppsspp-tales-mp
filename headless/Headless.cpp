@@ -50,7 +50,9 @@
 #include "Common/Log/LogManager.h"
 
 #include "Compare.h"
+#include "Common/File/FileUtil.h"
 #include "Core/HLE/sceCtrl.h"
+#include "Core/SaveState.h"
 #include "HeadlessHost.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
@@ -146,6 +148,7 @@ int printUsage(const char *progname, const char *reason)
 	fprintf(stderr, "  --screenshot=FILE     compare against a screenshot\n");
 	fprintf(stderr, "  --dump-screenshot=FILE save the final frame as a BMP\n");
 	fprintf(stderr, "  --mash                auto-press CIRCLE/CROSS/START to clear cutscenes\n");
+	fprintf(stderr, "  --save-state-on-exit=FILE  dump SaveState to FILE before exiting\n");
 	fprintf(stderr, "  --max-mse=NUMBER      maximum allowed MSE error for screenshot\n");
 	fprintf(stderr, "  --timeout=SECONDS     abort test it if takes longer than SECONDS\n");
 
@@ -181,6 +184,7 @@ struct AutoTestOptions {
 	bool verbose : 1;
 	bool bench : 1;
 	bool mashInput : 1;
+	const char *saveStateOnExit;
 };
 
 bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const AutoTestOptions &opt) {
@@ -296,6 +300,24 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 			}
 
 			passed = false;
+			// Dump a savestate before stopping so we can resume later.
+			if (opt.saveStateOnExit) {
+				std::vector<u8> state;
+				if (SaveState::SaveToRam(state) == CChunkFileReader::ERROR_NONE) {
+					FILE *f = File::OpenCFile(Path(std::string(opt.saveStateOnExit)), "wb");
+					if (f) {
+						fwrite(state.data(), 1, state.size(), f);
+						fclose(f);
+						fprintf(stderr, "TalesMp: wrote savestate to %s (%zu bytes)\n",
+							opt.saveStateOnExit, state.size());
+					} else {
+						fprintf(stderr, "TalesMp: failed to open %s for save\n",
+							opt.saveStateOnExit);
+					}
+				} else {
+					fprintf(stderr, "TalesMp: SaveToRam failed\n");
+				}
+			}
 			Core_Stop();
 		}
 	}
@@ -478,6 +500,8 @@ int main(int argc, const char* argv[])
 			dumpScreenshotFilename = argv[i] + strlen("--dump-screenshot=");
 		else if (!strcmp(argv[i], "--mash"))
 			testOptions.mashInput = true;
+		else if (!strncmp(argv[i], "--save-state-on-exit=", strlen("--save-state-on-exit=")) && strlen(argv[i]) > strlen("--save-state-on-exit="))
+			testOptions.saveStateOnExit = argv[i] + strlen("--save-state-on-exit=");
 		else if (!strncmp(argv[i], "--timeout=", strlen("--timeout=")) && strlen(argv[i]) > strlen("--timeout="))
 			testOptions.timeout = strtod(argv[i] + strlen("--timeout="), nullptr);
 		else if (!strncmp(argv[i], "--max-mse=", strlen("--max-mse=")) && strlen(argv[i]) > strlen("--max-mse="))

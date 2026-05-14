@@ -1,0 +1,4 @@
+# Build artifacts from `make`
+*.o
+*.elf
+PARAM.SFO
