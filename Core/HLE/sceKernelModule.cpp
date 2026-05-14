@@ -38,6 +38,7 @@
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/HLETables.h"
 #include "Core/HLE/Plugins.h"
+#include "Core/HLE/sceTalesMp.h"
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/Reporting.h"
@@ -1796,6 +1797,23 @@ bool __KernelLoadExec(const char *filename, u32 paramPtr, std::string *error_str
 	mipsr4k.pc = module->nm.entry_addr;
 
 	INFO_LOG(Log::Loader, "Module entry: %08x (%s %04x)", mipsr4k.pc, moduleName, moduleVersion);
+
+	// Hook point for game-specific MIPS patches: module is loaded and relocated
+	// in RAM, but no MIPS code has executed yet (entry function isn't called
+	// until __KernelStartModule below). Disc ID check is inside each patcher.
+	{
+		const std::string disc_id = g_paramSFO.GetDiscID();
+		INFO_LOG(Log::Loader, "TalesMp: hook point reached; disc_id='%s' module='%s'", disc_id.c_str(), moduleName);
+		// Fallback to module name match if disc_id lookup is empty (happens in
+		// some headless paths where ParamSFO isn't loaded). NDX module ID is
+		// "TOP_NARIKIRI_DUNGEON_R".
+		const bool match_by_id = TalesMp::IsSupportedDiscId(disc_id);
+		const bool match_by_name = std::string_view(moduleName).find("TOP_NARIKIRI_DUNGEON_R") != std::string_view::npos;
+		if (match_by_id || match_by_name) {
+			INFO_LOG(Log::Loader, "TalesMp: matched via %s; invoking patcher", match_by_id ? "DISC_ID" : "module-name");
+			TalesMp::ApplyPatches();
+		}
+	}
 
 	SceKernelSMOption option;
 	option.size = sizeof(SceKernelSMOption);

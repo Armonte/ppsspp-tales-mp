@@ -2313,6 +2313,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/sceChnnlsv.h
 	Core/HLE/sceCtrl.cpp
 	Core/HLE/sceCtrl.h
+	Core/HLE/sceTalesMp.cpp
+	Core/HLE/sceTalesMp.h
 	Core/HLE/sceDeflt.cpp
 	Core/HLE/sceDeflt.h
 	Core/HLE/sceDisplay.cpp
