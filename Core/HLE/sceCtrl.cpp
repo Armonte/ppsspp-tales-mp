@@ -26,6 +26,7 @@
 #include "Core/HLE/ErrorCodes.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/sceCtrl.h"
+#include "Core/ModularPatch.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceKernelThread.h"
 #include "Core/HLE/sceKernelInterrupt.h"
@@ -183,15 +184,20 @@ static void __CtrlUpdateLatch()
 				buttons1, 0x0E000010);
 			last_logged_buttons1 = buttons1;
 		}
-		// Diagnostic: periodically log hook state from MIPS-side scratch.
+		// NDX talesmp-patch diag: read MIPS-side scratch addresses written by
+		// the patch's hook + wrappers. Skip entirely when no modular patch is
+		// active so unpatched games don't see noise in their logs.
 		//   0x09F00400 = main hook (input_get_btn_make) total invocation count
 		//   0x09F00404 = current_char_idx (u8) at last main-hook invocation
 		//   0x09F00500 = char_update_wrapper total invocation count
 		//   0x09F00504 = char_update_wrapper slot-1 hits (pre-coop-flag check)
 		//   0x09F00520 = last $s1 (party slot idx) seen by wrapper
+		// TODO(talesmp): these specific addresses are baked into the NDX
+		// patch payloads. When generalizing the diag system, lift them
+		// from the patch JSON's "diag" section instead of hardcoding here.
 		static int diag_ticks = 0;
 		static u32 last_count = 0;
-		if (++diag_ticks >= 60) {  // every 60 VBlanks ~= 1 second
+		if (ModularPatch::IsActive() && ++diag_ticks >= 60) {  // every 60 VBlanks ~= 1 second
 			diag_ticks = 0;
 			if (Memory::IsValidAddress(0x09F00500)) {
 				const u32 w_total = Memory::Read_U32(0x09F00500);

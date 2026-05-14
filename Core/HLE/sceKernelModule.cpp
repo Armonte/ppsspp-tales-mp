@@ -38,7 +38,7 @@
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/HLETables.h"
 #include "Core/HLE/Plugins.h"
-#include "Core/HLE/sceTalesMp.h"
+#include "Core/ModularPatch.h"
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/Reporting.h"
@@ -1800,21 +1800,10 @@ bool __KernelLoadExec(const char *filename, u32 paramPtr, std::string *error_str
 
 	// Hook point for game-specific MIPS patches: module is loaded and relocated
 	// in RAM, but no MIPS code has executed yet (entry function isn't called
-	// until __KernelStartModule below). Disc ID check is inside each patcher.
-	{
-		const std::string disc_id = g_paramSFO.GetDiscID();
-		INFO_LOG(Log::Loader, "TalesMp: hook point reached; disc_id='%s' module='%s'", disc_id.c_str(), moduleName);
-		// NDX UMD ULJS00293 / PSN NPJH50231 contains TWO games sharing the
-		// same disc-id: Tales of Phantasia X (TOP_PHANTASIA_R) and
-		// Narikiri Dungeon X (TOP_NARIKIRI_DUNGEON_R). Disc-id alone is
-		// insufficient; match ONLY by module name so we don't apply
-		// NDX-specific patches to the launcher or to Phantasia X.
-		const bool is_ndx_module = std::string_view(moduleName).find("TOP_NARIKIRI_DUNGEON_R") != std::string_view::npos;
-		if (is_ndx_module) {
-			INFO_LOG(Log::Loader, "TalesMp: matched NDX module; invoking patcher");
-			TalesMp::ApplyPatches();
-		}
-	}
+	// until __KernelStartModule below). The modular patch system reads JSON
+	// files from assets/patches/ and matches by module name substring, so
+	// PPSSPP source stays game-agnostic.
+	ModularPatch::ApplyForModule(moduleName);
 
 	SceKernelSMOption option;
 	option.size = sizeof(SceKernelSMOption);

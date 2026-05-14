@@ -24,7 +24,7 @@
 
 #include "Common/Data/Text/I18n.h"
 #include "Common/Thread/ThreadUtil.h"
-#include "Core/HLE/sceTalesMp.h"
+#include "Core/ModularPatch.h"
 #include "Common/Data/Text/Parsers.h"
 #include "Common/System/System.h"
 
@@ -833,10 +833,14 @@ int g_screenshotFailures;
 					callbackResult = TriggerLoadWarnings(callbackMessage);
 					hasLoadedState = true;
 					Core_ResetException();
-					// Re-apply TalesMp patches if applicable. Savestates restore the
-					// game's RAM (including the EBOOT), which overwrites our MIPS hook
-					// installed at game load. Re-patch and invalidate JIT.
-					TalesMp::ApplyPatches();
+					// Re-apply modular patches if applicable. Savestates restore the
+					// game's RAM (including the EBOOT), which overwrites the MIPS
+					// hook installed at game load. We re-read the active patch file
+					// and re-apply it. (ModularPatch::ApplyForModule does its own
+					// no-op when no JSON matches, so this is safe for unpatched games.)
+					if (ModularPatch::IsActive()) {
+						ModularPatch::ApplyForModule(ModularPatch::ActiveName());
+					}
 
 					if (!slot_prefix.empty())
 						callbackMessage = slot_prefix + callbackMessage;

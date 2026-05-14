@@ -2153,6 +2153,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/CoreTiming.h
 	Core/CwCheat.cpp
 	Core/CwCheat.h
+	Core/ModularPatch.cpp
+	Core/ModularPatch.h
 	Core/FrameTiming.cpp
 	Core/FrameTiming.h
 	Core/HDRemaster.cpp
@@ -2313,8 +2315,6 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/sceChnnlsv.h
 	Core/HLE/sceCtrl.cpp
 	Core/HLE/sceCtrl.h
-	Core/HLE/sceTalesMp.cpp
-	Core/HLE/sceTalesMp.h
 	Core/HLE/sceDeflt.cpp
 	Core/HLE/sceDeflt.h
 	Core/HLE/sceDisplay.cpp
@@ -2895,6 +2895,7 @@ set(NativeAssets
 	assets/asciifont_atlas.zim
 	assets/asciifont_atlas.meta
 	assets/debugger
+	assets/patches
 	assets/upload
 	assets/lang
 	assets/shaders
