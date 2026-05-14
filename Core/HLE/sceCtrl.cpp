@@ -210,9 +210,12 @@ static void __CtrlUpdateLatch()
 				const u32 w_mint_t49 = Memory::Read_U8(0x09F00527);
 				const u32 w_mint_t49_post = Memory::Read_U8(0x09F00528);
 				const u32 w_resolved_ptr = Memory::Read_U32(0x09F0052C);
-				INFO_LOG(Log::sceCtrl, "TalesMp targets: Cless+49=%u Mint+49(pre)=%u Mint+49(post-jal)=%u resolved_char_ptrs[+49]=%08x",
+				// NDX leads: P1=Dio (party slot 0 typically), P2=Mell (party slot 1).
+				// Variable party (up to 4 PCs + summons + monsters), so naming "slot 0=Dio"
+				// is the convention but not invariant.
+				INFO_LOG(Log::sceCtrl, "TalesMp targets: Dio+49=%u Mell+49(pre)=%u Mell+49(post-jal)=%u resolved_char_ptrs[+49]=%08x",
 					w_cless_t49, w_mint_t49, w_mint_t49_post, w_resolved_ptr);
-				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1=%u swap=%u last_$s1=%u  Mint(id=%u,mode_before=%u)",
+				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1=%u swap=%u last_$s1=%u  Mell(id=%u,mode_before=%u)",
 					w_total, w_slot1, w_swap, w_last_s1, w_mint_id, w_mint_mode);
 			}
 			if (Memory::IsValidAddress(0x09F00400)) {
