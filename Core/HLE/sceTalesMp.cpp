@@ -461,7 +461,7 @@ bool ApplyPatches() {
 		0x8FA40004,
 		// 0x28: lb $t9, 0x627($a0)            ; coop_flag
 		// 0x2c: beq $t9, $0, .epilogue       ; (offset 0x36 → instr 66)
-		0x13200036,
+		0x13200038,
 		// 0x24: nop
 		0x00000000,
 		// 0x28: lb $t9, 0x62A($a0)            ; coop_char2 slot
@@ -473,7 +473,7 @@ bool ApplyPatches() {
 		// 0x34: lw $t9, 0xFC0($t9)            ; char_ptrs[slot]
 		0x8F390FC0,
 		// 0x44: beq $t9, $0, .epilogue       ; null Mint (offset 0x30 → instr 66)
-		0x13200030,
+		0x13200032,
 		// 0x3c: nop
 		0x00000000,
 		// 0x40: lb $t8, 5($t9)                ; Mint's char_id
@@ -536,11 +536,15 @@ bool ApplyPatches() {
 		0x27180001,
 		// 0xb4: sw $t8, 0x604($t6)
 		0xADD80604,
-		// 0xb8: lw $a0, 4($sp)
+		// 0xb8: lw $a0, 4($sp)                ; $a0 = bs
 		0x8FA40004,
-		// 0xbc: jal battle_input_dispatch    ; CALL 2 (pad-1, current=Mint)
+		// 0xbc: addiu $t9, $0, 15            ; force bs->main_state = 15 (idle)
+		0x2419000F,
+		// 0xc0: sb $t9, 0x5ED($a0)            ; idempotent across both FSM passes
+		0xA09905ED,
+		// 0xc4: jal battle_input_dispatch    ; CALL 2 (pad-1, current=Mint)
 		EncodeJal(PSP_LOAD_BASE + BATTLE_INPUT_DISPATCH_ADDR),
-		// 0xc0: nop
+		// 0xc8: nop
 		0x00000000,
 		// --- Clear is-2nd-call flag now that CALL 2 is done.
 		// 0xc4: lui $t8, 0x09F0
@@ -580,7 +584,7 @@ bool ApplyPatches() {
 		// 0x100: addiu $sp, $sp, 32           ; delay slot
 		0x27BD0020,
 	};
-	static_assert(ARRAY_SIZE(fsm_wrapper_payload) == 69, "fsm_wrapper_payload size changed; recompute branch offsets");
+	static_assert(ARRAY_SIZE(fsm_wrapper_payload) == 71, "fsm_wrapper_payload size changed; recompute branch offsets");
 
 	for (size_t i = 0; i < ARRAY_SIZE(fsm_wrapper_payload); ++i) {
 		Memory::Write_U32(fsm_wrapper_payload[i], FSM_WRAPPER_ADDR + (u32)(i * 4));
@@ -595,24 +599,12 @@ bool ApplyPatches() {
 	const u32 fsm_actual = Memory::Read_U32(fsm_site_runtime);
 	INFO_LOG(Log::Loader, "TalesMp: fsm callsite @ %08x: got=%08x  (orig=%08x wrapper=%08x)",
 		fsm_site_runtime, fsm_actual, expected_fsm_jal, expected_fsm_wrapper_jal);
-	// --- NOP the 2 per-frame jal battle_coop_tick_both_chars calls ---
-	// These calls invoke sub_3F194 which clears the partner's input bits at
-	// char->+0x10C and writes a damping value 0.25 to char->+0x190 every
-	// frame. That cleared bits/damping prevents independent X-axis control
-	// of the partner (only Y axis works because Y uses a separate code
-	// path). Nopping prevents the coop tick from cleansing partner state.
-	// Also reduces dual-FSM crash risk since sub_3F194 may be non-reentrant.
-	static constexpr u32 COOP_TICK_CALLSITES[] = { 0x0123D8, 0x012560 };
-	u32 ct_first = 0xFFFFFFFFu, ct_last = 0u;
-	for (u32 site : COOP_TICK_CALLSITES) {
-		const u32 runtime_addr = PSP_LOAD_BASE + site;
-		Memory::Write_U32(0x00000000, runtime_addr);
-		if (runtime_addr < ct_first) ct_first = runtime_addr;
-		if (runtime_addr > ct_last)  ct_last  = runtime_addr;
-	}
-	if (MIPSComp::jit) MIPSComp::jit->InvalidateCacheAt(ct_first, (ct_last - ct_first) + 4);
-	INFO_LOG(Log::Loader, "TalesMp: nopped %u jal sub_C1C8 sites (coop tick per-frame disabled)",
-		(unsigned)ARRAY_SIZE(COOP_TICK_CALLSITES));
+	// (Previously nopped sub_C1C8 callsites here to eliminate the partner
+	// damping/clear that was locking Mint's X axis. Restored to avoid the
+	// downstream NULL deref in battle_set_action_mode_50. Accept X trailing
+	// as a known limitation; it can be addressed surgically by patching
+	// individual `sb` instructions inside sub_42C18 rather than nopping
+	// the whole coop tick.)
 
 	// DIAGNOSTIC: install a MINIMAL passthrough wrapper at 0x09F00400 instead
 	// of the dual-FSM wrapper at 0x09F00200. The minimal wrapper does nothing
