@@ -293,6 +293,20 @@ namespace ModularPatch {
 
 bool ApplyForModule(std::string_view module_name) {
 	INFO_LOG(Log::Loader, "ModularPatch: ApplyForModule('%.*s')", (int)module_name.size(), module_name.data());
+	// Reset active-state at the start of every call. Two reasons:
+	//  1) Different game booted after a previous patched session — without
+	//     this, IsActive() would still report true and the savestate-load
+	//     callback in SaveState.cpp would re-apply the previous game's
+	//     patches into the wrong game's RAM (caught in the wild: NDX patches
+	//     firing on TOP_PHANTASIA_R after a state load).
+	//  2) Same game re-entered, but the JSON has since been removed or
+	//     renamed — we should reflect "no longer active" rather than carry
+	//     forward stale identity.
+	// The two flags are only set true again below if a matching JSON is
+	// found AND successfully applied.
+	s_active = false;
+	s_active_name.clear();
+
 	// Find candidate JSON files under assets/patches/. We don't have a
 	// directory-listing helper here that's both VFS-aware and reliable on
 	// every backend, so we use the static well-known location and try the
