@@ -69,6 +69,7 @@ class CtrlDisAsmView {
 	};
 
 	void assembleOpcode(u32 address, const std::string &defaultText);
+	void assembleFromClipboard(u32 address);
 	void disassembleToFile();
 	void search(bool continueSearch);
 	void followBranch();

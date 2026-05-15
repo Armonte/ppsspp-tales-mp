@@ -292,6 +292,52 @@ void CtrlDisAsmView::assembleOpcode(u32 address, const std::string &defaultText)
 	}
 }
 
+void CtrlDisAsmView::assembleFromClipboard(u32 address)
+{
+	auto memLock = Memory::Lock();
+	if (!Core_IsStepping()) {
+		MessageBox(wnd, L"Cannot change code while the core is running!", L"Error", MB_OK);
+		return;
+	}
+
+	// Pull text off the clipboard. The disasm exporter ("Copy Instruction
+	// (Disasm)") already emits armips-compatible content — \t<mnemonic>\t<params>
+	// per line plus optional labels — so the round-trip is just paste in.
+	std::string text;
+	if (OpenClipboard(wnd)) {
+		HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+		if (hData) {
+			const wchar_t *wtext = (const wchar_t *)GlobalLock(hData);
+			if (wtext) {
+				text = ConvertWStringToUTF8(wtext);
+				GlobalUnlock(hData);
+			}
+		}
+		CloseClipboard();
+	}
+	if (text.empty()) {
+		MessageBox(wnd, L"Clipboard is empty (or doesn't contain text).", L"Assemble from Clipboard", MB_OK | MB_ICONWARNING);
+		return;
+	}
+
+	// Hand the whole multi-line blob to armips as a single program at
+	// `.org address`. armips assembles each line and PspAssemblerFile::write
+	// invalidates JIT cache per write — so this fixes the "JIT serves stale
+	// bytes" symptom you get if you write the same range via an external
+	// tool (e.g. Cheat Engine) that doesn't go through PPSSPP's memory path.
+	std::string error;
+	bool ok = MipsAssembleOpcode(text, debugger, address, &error);
+	Reporting::NotifyDebugger();
+	if (ok) {
+		scanVisibleFunctions();
+		redraw();
+	} else {
+		// armips already includes line numbers in its error strings.
+		std::wstring werror = ConvertUTF8ToWString(error.c_str());
+		MessageBox(wnd, werror.c_str(), L"Assemble from Clipboard — failed", MB_OK | MB_ICONERROR);
+	}
+}
+
 void CtrlDisAsmView::drawBranchLine(HDC hdc, std::map<u32,int> &addressPositions, const BranchLine &line) {
 	HPEN pen;
 	u32 windowEnd = g_disassemblyManager.getNthNextAddress(windowStart,visibleRows);
@@ -979,6 +1025,9 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 			break;
 		case ID_DISASM_ASSEMBLE:
 			assembleOpcode(curAddress,"");
+			break;
+		case ID_DISASM_ASSEMBLEFROMCLIPBOARD:
+			assembleFromClipboard(selectRangeStart);
 			break;
 		case ID_DISASM_COPYINSTRUCTIONDISASM:
 			CopyInstructions(selectRangeStart, selectRangeEnd, CopyInstructionsMode::DISASM);

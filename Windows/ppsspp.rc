@@ -749,6 +749,7 @@ BEGIN
         MENUITEM "Disassemble to File",        ID_DISASM_DISASSEMBLETOFILE
         MENUITEM SEPARATOR
         MENUITEM "Assemble Opcode",            ID_DISASM_ASSEMBLE
+        MENUITEM "Assemble from Clipboard",    ID_DISASM_ASSEMBLEFROMCLIPBOARD
         MENUITEM SEPARATOR
         MENUITEM "Run to Cursor",              ID_DISASM_RUNTOHERE
         MENUITEM "Jump to Cursor",             ID_DISASM_SETPCTOHERE
