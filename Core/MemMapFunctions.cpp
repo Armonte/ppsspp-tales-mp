@@ -45,9 +45,6 @@ const u8 *GetPointer(const u32 address) {
 		(address & 0x3F800000) == 0x04000000 || // VRAM
 		(address & 0xBFFFC000) == 0x00010000 || // Scratchpad
 		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3 (writes overwritten next VBlank)
-		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3
-		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3
-		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3
 		((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize)) { // More RAM (remasters, etc.)
 		return GetPointerUnchecked(address);
 	} else {
@@ -94,6 +91,7 @@ inline void ReadFromHardware(T &var, const u32 address) {
 	if ((address & 0x3E000000) == 0x08000000 || // RAM
 		(address & 0x3F800000) == 0x04000000 || // VRAM
 		(address & 0xBFFFC000) == 0x00010000 || // Scratchpad
+		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3 — same arena view as JIT direct loads
 		((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize)) { // More RAM (remasters, etc.)
 		var = *((const T*)GetPointerUnchecked(address));
 	} else {
@@ -107,6 +105,8 @@ inline void WriteToHardware(u32 address, const T data) {
 	if ((address & 0x3E000000) == 0x08000000 || // RAM
 		(address & 0x3F800000) == 0x04000000 || // VRAM
 		(address & 0xBFFFC000) == 0x00010000 || // Scratchpad
+		IsExtraPadAddress(address) ||           // Virtual MMIO pads 1..3 — last-write wins; the per-VBlank
+		                                        //  mirror in sceCtrl.cpp overwrites next frame.
 		((address & 0x3F000000) >= 0x08000000 && (address & 0x3F000000) < 0x08000000 + g_MemorySize)) { // More RAM (remasters, etc.)
 		*(T*)GetPointerUnchecked(address) = data;
 	} else {
