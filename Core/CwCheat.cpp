@@ -196,7 +196,14 @@ void CheatFileParser::ParseDataLine(const std::string &line, int lineNumber) {
 	CheatLine cheatLine;
 	int len = 0;
 	if (sscanf(line.c_str(), "%x %x %n", &cheatLine.part1, &cheatLine.part2, &len) == 2) {
-		if ((size_t)len < line.length()) {
+		// Allow inline trailing comments on _L lines: "; ..." or "// ...".
+		// Useful so authored cheats can self-document each instruction
+		// (e.g. produced by the disasm "Copy as CWcheat line" feature).
+		// Anything else after the two hex values is still treated as junk.
+		const std::string tail = TrimString(line.substr(len));
+		const bool isComment = !tail.empty() && (tail[0] == ';' ||
+			(tail.size() >= 2 && tail[0] == '/' && tail[1] == '/'));
+		if (!tail.empty() && !isComment) {
 			AddError("junk after line data", lineNumber);
 		}
 		pendingLines_.push_back(cheatLine);
