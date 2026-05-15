@@ -871,7 +871,35 @@ void CtrlDisAsmView::onMouseDown(WPARAM wParam, LPARAM lParam, int button)
 void CtrlDisAsmView::CopyInstructions(u32 startAddr, u32 endAddr, CopyInstructionsMode mode) {
 	_assert_msg_((startAddr & 3) == 0, "readMemory() can't handle unaligned reads");
 
-	if (mode != CopyInstructionsMode::DISASM) {
+	if (mode == CopyInstructionsMode::CWCHEAT) {
+		// One CWcheat code line per selected instruction:
+		//   _L 0x2<7hex offset> 0x<8hex instr> ; <disasm>
+		// Offset is `addr - 0x08800000` (CWCheatEngine::GetAddress base).
+		// Out-of-range addresses (below 0x08800000 — kernel space, scratch,
+		// etc.) emit a self-explanatory comment line instead of a bad cheat.
+		const int instructionSize = debugger->getInstructionSize(0);
+		const int count = (endAddr - startAddr) / instructionSize;
+		const int perLine = 128;  // "_L 0x2XXXXXXX 0xYYYYYYYY ; " (28) + disasm (≤80) + \r\n + slack
+		const int space = count * perLine + 1;
+		char *temp = new char[space];
+		char *p = temp, *end = temp + space;
+		for (u32 pos = startAddr; pos < endAddr && p < end; pos += instructionSize) {
+			char asm_text[80] = {0};
+			getOpcodeText(pos, asm_text, sizeof(asm_text));
+			if (pos < 0x08800000u) {
+				p += snprintf(p, end - p, "; out-of-range 0x%08X  %s", pos, asm_text);
+			} else {
+				const u32 instr = debugger->readMemory(pos);
+				const u32 offset = pos - 0x08800000u;
+				p += snprintf(p, end - p, "_L 0x2%07X 0x%08X ; %s",
+					offset & 0x0FFFFFFFu, instr, asm_text);
+			}
+			if (pos + instructionSize < endAddr && p < end)
+				p += snprintf(p, end - p, "\r\n");
+		}
+		W32Util::CopyTextToClipboard(wnd, temp);
+		delete [] temp;
+	} else if (mode != CopyInstructionsMode::DISASM) {
 		int instructionSize = debugger->getInstructionSize(0);
 		int count = (endAddr - startAddr) / instructionSize;
 		int space = count * 32;
@@ -960,6 +988,9 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 			break;
 		case ID_DISASM_COPYINSTRUCTIONHEX:
 			CopyInstructions(selectRangeStart, selectRangeEnd, CopyInstructionsMode::OPCODES);
+			break;
+		case ID_DISASM_COPYCWCHEAT:
+			CopyInstructions(selectRangeStart, selectRangeEnd, CopyInstructionsMode::CWCHEAT);
 			break;
 		case ID_DISASM_COPYFUNCTIONHASH:
 			CopyFunctionHash(curAddress);

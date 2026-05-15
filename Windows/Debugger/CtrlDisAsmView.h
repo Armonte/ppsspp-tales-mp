@@ -65,6 +65,7 @@ class CtrlDisAsmView {
 		OPCODES,
 		DISASM,
 		ADDRESSES,
+		CWCHEAT,
 	};
 
 	void assembleOpcode(u32 address, const std::string &defaultText);
