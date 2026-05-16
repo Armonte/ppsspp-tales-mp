@@ -118,6 +118,10 @@ namespace KeyMap {
 		explicit MultiInputMapping(const InputMapping &mapping) {
 			mappings.push_back(mapping);
 		}
+		MultiInputMapping(const InputMapping &mapping, int padIdx) {
+			mappings.push_back(mapping);
+			padIndex = padIdx;
+		}
 		
 		static MultiInputMapping FromConfigString(std::string_view str);
 		std::string ToConfigString() const;
@@ -215,7 +219,7 @@ namespace KeyMap {
 	void ClearAllMappings();
 	void DeleteNthMapping(int key, int number);
 
-	void SetDefaultKeyMap(DefaultMaps dmap, bool replace);
+	void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex);
 
 	void RestoreDefault();
 
@@ -233,7 +237,12 @@ namespace KeyMap {
 
 	const std::set<std::string> &GetSeenPads();
 	std::string PadName(InputDeviceID deviceId);
-	void AutoConfForPad(std::string_view name);
+	// Apply a default mapping profile for the given controller name.
+	// `targetPadIndex` chooses which PSP virtual pad (0 = primary, 1..N-1 =
+	// extra pads) the resulting bindings drive. Existing bindings on that
+	// device that already target a DIFFERENT pad index are preserved — only
+	// the slot we're configuring gets cleared.
+	void AutoConfForPad(std::string_view name, int targetPadIndex = 0);
 
 	bool IsKeyMapped(InputDeviceID device, int key);
 

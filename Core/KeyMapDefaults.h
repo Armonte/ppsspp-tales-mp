@@ -16,6 +16,9 @@ enum DefaultMaps {
 	DEFAULT_MAPPING_VR_HEADSET,
 };
 
-void SetDefaultKeyMap(DefaultMaps dmap, bool replace);
+// `targetPadIndex` chooses which PSP virtual pad slot the default mappings
+// drive. Default 0 = main pad (existing behavior). 1..N-1 = extra pads
+// (multiplayer via the EXTRA_PAD MMIO mirror).
+void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex = 0);
 
 }  // namespace

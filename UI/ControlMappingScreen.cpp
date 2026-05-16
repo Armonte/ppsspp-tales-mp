@@ -358,16 +358,40 @@ void ControlMappingScreen::OnPadChanged(UI::EventParams &e) {
 
 
 void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
+	// Per-controller × per-PSP-pad list. So if "Xbox 360 Controller" was
+	// seen, the popup shows:
+	//   Xbox 360 Controller -> P1
+	//   Xbox 360 Controller -> P2
+	//   Xbox 360 Controller -> P3
+	//   Xbox 360 Controller -> P4
+	// The user picks the combination they want in one click. The "-> Px"
+	// suffix is parsed out in the popup callback. NUM_VIRTUAL_PADS-1 player
+	// slots are exposed (we skip pad 0's "-> P0" duplicate by only emitting
+	// the player-friendly P1..PN labels; "Px" means PSP pad index x-1).
 	std::vector<std::string> items;
 	const auto seenPads = KeyMap::GetSeenPads();
-	for (auto s = seenPads.begin(), end = seenPads.end(); s != end; ++s) {
-		items.push_back(*s);
+	for (const std::string &dev : seenPads) {
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS && pad < 4; ++pad) {
+			items.push_back(dev + "  ->  P" + std::to_string(pad + 1));
+		}
 	}
 	auto km = GetI18NCategory(I18NCat::KEYMAPPING);
 	auto di = GetI18NCategory(I18NCat::DIALOG);
 	// Uses a callback, since in portrait the settings are in a popup, which would get dialogFinished instead of us.
 	UI::ListPopupScreen *autoConfList = new UI::ListPopupScreen(km->T("Autoconfigure for device"), items, -1, [items](int index) {
-		KeyMap::AutoConfForPad(items[index]);
+		// Parse the "<device>  ->  Px" suffix added above. Falls back to pad 0 if the suffix is missing.
+		std::string choice = items[index];
+		int targetPad = 0;
+		const std::string sep = "  ->  P";
+		size_t sepAt = choice.rfind(sep);
+		if (sepAt != std::string::npos) {
+			int pNum = std::atoi(choice.c_str() + sepAt + sep.size());
+			if (pNum >= 1 && pNum <= NUM_VIRTUAL_PADS) {
+				targetPad = pNum - 1;
+			}
+			choice = choice.substr(0, sepAt);
+		}
+		KeyMap::AutoConfForPad(choice, targetPad);
 	});
 	autoConfList->SetNotification(NoticeLevel::WARN, di->T("This will overwrite the existing configuration"));
 	if (params.v)
