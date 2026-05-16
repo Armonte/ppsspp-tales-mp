@@ -192,7 +192,9 @@ void ControlMapper::SetPSPAxis(int device, int padIndex, int stick, char axis, f
 void ControlMapper::UpdateAnalogOutput(int padIndex, int stick) {
 	float x, y;
 	ConvertAnalogStick(history_[padIndex][stick][0], history_[padIndex][stick][1], &x, &y);
-	if (virtKeyOn_[VIRTKEY_ANALOG_LIGHTLY - VIRTKEY_FIRST]) {
+	// ANALOG_LIGHTLY is a system modifier — any pad holding it applies the limiter
+	// to every pad's analog. IsVirtKeyOn ORs across pads internally.
+	if (IsVirtKeyOn(VIRTKEY_ANALOG_LIGHTLY)) {
 		x *= g_Config.fAnalogLimiterDeadzone;
 		y *= g_Config.fAnalogLimiterDeadzone;
 	}
@@ -437,15 +439,25 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 		// If a mapping could consist of a combo, we could trivially check it here.
 		// Save the first device ID so we can pass it into onVKeyDown, which in turn needs it for the analog
 		// mapping which gets a little hacky.
+		//
+		// Per-pad bucketing: previously the inner loop summed every
+		// multiMapping's product into a single `value` regardless of
+		// multiMapping.padIndex, then dispatched to pad 0. That meant a
+		// P2 binding's analog value got mixed with P1's contributions and
+		// dumped onto P1's analog stick. Now we accumulate per pad and
+		// dispatch per pad. Threshold stays single-valued since it's per-
+		// mapping (axis-driven), not per-pad.
 		float threshold = 1.0f;
-		bool touchedByMapping = false;
-		float value = 0.0f;
+		bool perPadTouched[NUM_VIRTUAL_PADS]{};
+		float perPadValue[NUM_VIRTUAL_PADS]{};
+		bool anyTouched = false;
 		for (auto &multiMapping : inputMappings) {
 			int pad = multiMapping.padIndex;
 			if (pad < 0 || pad >= NUM_VIRTUAL_PADS) continue;
 
 			if (multiMapping.mappings.contains(changedMapping)) {
-				touchedByMapping = true;
+				perPadTouched[pad] = true;
+				anyTouched = true;
 			}
 
 			float product = 1.0f;  // We multiply the various inputs in a combo mapping with each other.
@@ -464,7 +476,12 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 
 					if (mapping.IsAxis()) {
 						threshold = GetDeviceAxisThreshold(iter->first.deviceId, mapping);
-						float value = MapAxisValue(iter->second.value, idForMapping, mapping, changedMapping, &touchedByMapping);
+						bool axisTouched = false;
+						float value = MapAxisValue(iter->second.value, idForMapping, mapping, changedMapping, &axisTouched);
+						if (axisTouched) {
+							perPadTouched[pad] = true;
+							anyTouched = true;
+						}
 						product *= value;
 					} else {
 						product *= iter->second.value;
@@ -474,10 +491,10 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 				}
 			}
 
-			value += product;
+			perPadValue[pad] += product;
 		}
 
-		if (!touchedByMapping) {
+		if (!anyTouched) {
 			continue;
 		}
 
@@ -489,6 +506,7 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 		// which will quickly get things back to normal, while if it's intentional to use both at the same time for some reason,
 		// that still works, though a bit weaker. We could also zero here, but you never know who relies on such strange tricks..
 		// Note: This is an old problem, it didn't appear with the refactoring.
+		// Decay is at the curInput_ level, which is global (per physical input), so it stays outside the per-pad loop.
 		if (!changedMapping.IsAxis()) {
 			for (auto &multiMapping : inputMappings) {
 				for (auto &mapping : multiMapping.mappings) {
@@ -501,34 +519,49 @@ bool ControlMapper::UpdatePSPState(const InputMapping &changedMapping, double no
 			}
 		}
 
-		value = clamp_value(value, 0.0f, 1.0f);
-
-		// Derive bools from the floats using the device's threshold.
-		// NOTE: This must be before the equality check below.
-		bool bPrevValue = virtKeys_[i] >= threshold;
-		bool bValue = value >= threshold;
-
-		if (virtKeys_[i] != value) {
-			// INFO_LOG(Log::G3D, "vkeyanalog %s : %f", KeyMap::GetVirtKeyName(vkId), value);
-			onVKeyAnalog(changedMapping.deviceId, vkId, value);
-			virtKeys_[i] = value;
+		// Aggregate ON state BEFORE per-pad updates, so system-level vkeys
+		// (PAUSE / FASTFORWARD / ANALOG_LIGHTLY / AXIS_SWAP_HOLD etc) fire
+		// the global onVKey edge once when any pad transitions from "none on"
+		// to "any on", rather than once per pad.
+		bool anyPrevOn = false;
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			if (virtKeyOn_[pad][i]) { anyPrevOn = true; break; }
 		}
 
-		if (!bPrevValue && bValue) {
-			// INFO_LOG(Log::G3D, "vkeyon %s", KeyMap::GetVirtKeyName(vkId));
-			onVKey(vkId, true);
-			virtKeyOn_[vkId - VIRTKEY_FIRST] = true;
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			if (!perPadTouched[pad]) continue;
 
+			float padValue = clamp_value(perPadValue[pad], 0.0f, 1.0f);
+			bool bPrevValue = virtKeys_[pad][i] >= threshold;
+			bool bValue = padValue >= threshold;
+
+			if (virtKeys_[pad][i] != padValue) {
+				onVKeyAnalog(changedMapping.deviceId, pad, vkId, padValue);
+				virtKeys_[pad][i] = padValue;
+			}
+
+			if (!bPrevValue && bValue) {
+				virtKeyOn_[pad][i] = true;
+			} else if (bPrevValue && !bValue) {
+				virtKeyOn_[pad][i] = false;
+			}
+		}
+
+		// Now recompute aggregate ON and fire global onVKey on edge.
+		bool anyNowOn = false;
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			if (virtKeyOn_[pad][i]) { anyNowOn = true; break; }
+		}
+
+		if (!anyPrevOn && anyNowOn) {
+			onVKey(vkId, true);
 			if (vkId == VIRTKEY_ANALOG_LIGHTLY) {
 				updateAnalogSticks = true;
 			} else if (vkId == VIRTKEY_AXIS_SWAP_HOLD) {
 				UpdateSwapAxes();
 			}
-		} else if (bPrevValue && !bValue) {
-			// INFO_LOG(Log::G3D, "vkeyoff %s", KeyMap::GetVirtKeyName(vkId));
+		} else if (anyPrevOn && !anyNowOn) {
 			onVKey(vkId, false);
-			virtKeyOn_[vkId - VIRTKEY_FIRST] = false;
-
 			if (vkId == VIRTKEY_ANALOG_LIGHTLY) {
 				updateAnalogSticks = true;
 			} else if (vkId == VIRTKEY_AXIS_SWAP_HOLD) {
@@ -586,24 +619,39 @@ void ControlMapper::ToggleSwapAxes() {
 }
 
 void ControlMapper::UpdateSwapAxes() {
+	// Clear dpad on every pad — axis-swap toggle affects all virtual pads
+	// since each pad has its own swapped-axes view of the same logical inputs.
 	for (auto listener : listeners_) {
-		// (padIndex, set, clear) — was (set=0, clear=mask); now pad 0 only.
-		listener->UpdatePSPButtons(0, 0, CTRL_LEFT | CTRL_RIGHT | CTRL_UP | CTRL_DOWN);
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			listener->UpdatePSPButtons(pad, 0, CTRL_LEFT | CTRL_RIGHT | CTRL_UP | CTRL_DOWN);
+		}
 	}
 
 	for (VirtKey vkey = VIRTKEY_FIRST; vkey < VIRTKEY_LAST; vkey = (VirtKey)(vkey + 1)) {
-		if (IsSwappableVKey(vkey)) {
-			if (virtKeyOn_[vkey - VIRTKEY_FIRST]) {
-				for (auto listener : listeners_) {
-					listener->OnVKey(vkey, false);
-				}
-				virtKeyOn_[vkey - VIRTKEY_FIRST] = false;
+		if (!IsSwappableVKey(vkey)) continue;
+		const int i = vkey - VIRTKEY_FIRST;
+
+		// Clear per-pad first; fire the global OnVKey edge only once if
+		// any pad transitioned from on to off.
+		bool wasAnyOn = false;
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			if (virtKeyOn_[pad][i]) {
+				wasAnyOn = true;
+				virtKeyOn_[pad][i] = false;
 			}
-			if (virtKeys_[vkey - VIRTKEY_FIRST] > 0.0f) {
+		}
+		if (wasAnyOn) {
+			for (auto listener : listeners_) {
+				listener->OnVKey(vkey, false);
+			}
+		}
+
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			if (virtKeys_[pad][i] > 0.0f) {
 				for (auto listener : listeners_) {
 					listener->OnVKeyAnalog(vkey, 0.0f);
 				}
-				virtKeys_[vkey - VIRTKEY_FIRST] = 0.0f;
+				virtKeys_[pad][i] = 0.0f;
 			}
 		}
 	}
@@ -669,6 +717,11 @@ void ControlMapper::UpdateConfig(const DisplayLayoutConfig &config) {
 }
 
 void ControlMapper::UpdateAutoMovements(double now) {
+	// Auto-rotate-analog is a dev/debug helper that drives pad 0's left stick
+	// in a circle; it intentionally targets pad 0 only because there's no UX
+	// for choosing a target pad here. Adding multi-pad support would need a
+	// "which pad" config knob and isn't worth it for what's basically a test
+	// feature.
 	if (autoRotatingAnalogCW_) {
 		// Clamp to a square
 		float x = std::min(1.0f, std::max(-1.0f, 1.42f * (float)cos(now * -g_Config.fAnalogAutoRotSpeed)));
@@ -691,15 +744,18 @@ void ControlMapper::PSPKey(int deviceId, int pspKeyCode, KeyInputFlags flags) {
 	std::lock_guard<std::mutex> guard(mutex_);
 	if (pspKeyCode >= VIRTKEY_FIRST) {
 		int vk = pspKeyCode - VIRTKEY_FIRST;
+		// PSPKey is the entry for synthetic / OSK / emu-injected presses, not
+		// from a physical pad's mapping table — there's no padIndex context.
+		// Route them to pad 0 (the primary), which preserves prior behavior.
 		if (flags & KeyInputFlags::DOWN) {
-			virtKeys_[vk] = 1.0f;
+			virtKeys_[0][vk] = 1.0f;
 			onVKey((VirtKey)pspKeyCode, true);
-			onVKeyAnalog(deviceId, (VirtKey)pspKeyCode, 1.0f);
+			onVKeyAnalog(deviceId, 0, (VirtKey)pspKeyCode, 1.0f);
 		}
 		if (flags & KeyInputFlags::UP) {
-			virtKeys_[vk] = 0.0f;
+			virtKeys_[0][vk] = 0.0f;
 			onVKey((VirtKey)pspKeyCode, false);
-			onVKeyAnalog(deviceId, (VirtKey)pspKeyCode, 0.0f);
+			onVKeyAnalog(deviceId, 0, (VirtKey)pspKeyCode, 0.0f);
 		}
 	} else {
 		// INFO_LOG(Log::System, "pspKey %d %d", pspKeyCode, flags);
@@ -714,7 +770,7 @@ void ControlMapper::PSPKey(int deviceId, int pspKeyCode, KeyInputFlags flags) {
 	}
 }
 
-void ControlMapper::onVKeyAnalog(int deviceId, VirtKey vkey, float value) {
+void ControlMapper::onVKeyAnalog(int deviceId, int padIndex, VirtKey vkey, float value) {
 	// Unfortunately, for digital->analog inputs to work sanely, we need to sum up
 	// with the opposite value too.
 	int stick = 0;
@@ -737,14 +793,16 @@ void ControlMapper::onVKeyAnalog(int deviceId, VirtKey vkey, float value) {
 		return;
 	}
 	if (oppositeVKey != 0) {
-		float oppVal = virtKeys_[oppositeVKey - VIRTKEY_FIRST];
+		// Same-pad lookup — the opposite virtkey contributes to THIS pad's
+		// stick value only. Cross-pad subtraction would let P1's stick-left
+		// cancel P2's stick-right, which is exactly the bug we just fixed.
+		float oppVal = virtKeys_[padIndex][oppositeVKey - VIRTKEY_FIRST];
 		if (oppVal != 0.0f) {
 			value -= oppVal;
 			// NOTICE_LOG(Log::sceCtrl, "Reducing %f by %f (from %08x : %s)", value, oppVal, oppositeVKey, KeyMap::GetPspButtonName(oppositeVKey).c_str());
 		}
 	}
-	// Virtkey-driven analog only ever drives pad 0. Pad N analog support is a follow-up.
-	SetPSPAxis(deviceId, 0, stick, axis, sign * value);
+	SetPSPAxis(deviceId, padIndex, stick, axis, sign * value);
 }
 
 void ControlMapper::onVKey(VirtKey vkey, bool down) {
@@ -786,10 +844,16 @@ void ControlMapper::GetDebugString(char *buffer, size_t bufSize) const {
 		iter.first.FormatDebug(temp, sizeof(temp));
 		str << temp << ": " << iter.second.value << std::endl;
 	}
-	for (int i = 0; i < ARRAY_SIZE(virtKeys_); i++) {
+	for (int i = 0; i < VIRTKEY_COUNT; i++) {
 		int vkId = VIRTKEY_FIRST + i;
 		if ((vkId >= VIRTKEY_AXIS_X_MIN && vkId <= VIRTKEY_AXIS_Y_MAX) || vkId == VIRTKEY_ANALOG_LIGHTLY || vkId == VIRTKEY_SPEED_ANALOG) {
-			str << KeyMap::GetPspButtonName(vkId) << ": " << virtKeys_[i] << std::endl;
+			str << KeyMap::GetPspButtonName(vkId);
+			for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+				if (pad == 0 || virtKeys_[pad][i] != 0.0f) {
+					str << " [P" << (pad + 1) << "=" << virtKeys_[pad][i] << "]";
+				}
+			}
+			str << std::endl;
 		}
 	}
 	str << "Lstick: " << converted_[0][0][0] << ", " << converted_[0][0][1] << std::endl;

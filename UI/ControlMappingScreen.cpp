@@ -348,10 +348,22 @@ void ControlMappingScreen::OnPadChanged(UI::EventParams &e) {
 
 
 void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
+	// Per-controller × per-PSP-pad list. So if "Xbox 360 Controller" was
+	// seen, the popup shows:
+	//   Xbox 360 Controller -> P1
+	//   Xbox 360 Controller -> P2
+	//   Xbox 360 Controller -> P3
+	//   Xbox 360 Controller -> P4
+	// The user picks the combination they want in one click. The "-> Px"
+	// suffix is parsed out in dialogFinished. NUM_VIRTUAL_PADS-1 player
+	// slots are exposed (we skip pad 0's "-> P0" duplicate by only emitting
+	// the player-friendly P1..PN labels; "Px" means PSP pad index x-1).
 	std::vector<std::string> items;
 	const auto seenPads = KeyMap::GetSeenPads();
-	for (auto s = seenPads.begin(), end = seenPads.end(); s != end; ++s) {
-		items.push_back(*s);
+	for (const std::string &dev : seenPads) {
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS && pad < 4; ++pad) {
+			items.push_back(dev + "  ->  P" + std::to_string(pad + 1));
+		}
 	}
 	auto km = GetI18NCategory(I18NCat::KEYMAPPING);
 	auto di = GetI18NCategory(I18NCat::DIALOG);
@@ -365,7 +377,21 @@ void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
 void ControlMappingScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 	if (result == DR_OK && !strcmp(dialog->tag(), "listpopup")) {
 		UI::ListPopupScreen *popup = (UI::ListPopupScreen *)dialog;
-		KeyMap::AutoConfForPad(popup->GetChoiceString());
+		// Parse the "<device>  ->  Px" suffix added by OnAutoConfigure.
+		// Falls back to pad 0 if the suffix is missing (shouldn't happen
+		// but cheap insurance).
+		std::string choice = popup->GetChoiceString();
+		int targetPad = 0;
+		const std::string sep = "  ->  P";
+		size_t sepAt = choice.rfind(sep);
+		if (sepAt != std::string::npos) {
+			int pNum = std::atoi(choice.c_str() + sepAt + sep.size());
+			if (pNum >= 1 && pNum <= NUM_VIRTUAL_PADS) {
+				targetPad = pNum - 1;
+			}
+			choice = choice.substr(0, sepAt);
+		}
+		KeyMap::AutoConfForPad(choice, targetPad);
 	}
 }
 

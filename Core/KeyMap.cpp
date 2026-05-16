@@ -961,7 +961,42 @@ void ClearControlsWithDeviceId(InputDeviceID deviceId) {
 	}
 }
 
-void AutoConfForPad(std::string_view name) {
+// Narrower variant of ClearControlsWithDeviceId: only erase mappings that
+// belong to `deviceId` AND target the specified PSP pad slot. Lets autoconfig
+// rebind one pad slot without nuking pre-existing bindings the user set up
+// for a different pad on the same physical controller.
+static void ClearControlsWithDeviceIdAndPadIndex(InputDeviceID deviceId, int padIndex) {
+	bool modified = false;
+	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
+	for (auto iter = g_controllerMap.begin(); iter != g_controllerMap.end(); ++iter) {
+		auto &mappings = iter->second;
+		for (auto mapIter = mappings.begin(); mapIter != mappings.end(); ) {
+			if (mapIter->padIndex != padIndex) {
+				++mapIter;
+				continue;
+			}
+			bool found = false;
+			for (auto &mapping : mapIter->mappings) {
+				if (mapping.deviceId == deviceId) {
+					found = true;
+					break;
+				}
+			}
+			if (found) {
+				mapIter = mappings.erase(mapIter);
+				modified = true;
+			} else {
+				++mapIter;
+			}
+		}
+	}
+
+	if (modified) {
+		g_controllerMapGeneration++;
+	}
+}
+
+void AutoConfForPad(std::string_view name, int targetPadIndex) {
 	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
 
 	InputDeviceID deviceId = DEVICE_ID_PAD_0;
@@ -971,15 +1006,19 @@ void AutoConfForPad(std::string_view name) {
 			deviceId = padDeviceId;
 		}
 	}
-	ClearControlsWithDeviceId(deviceId);
+	// Only clear the slot we're about to write; preserve any pre-existing
+	// bindings the user set up for OTHER PSP pads on this same physical
+	// controller (rare but legitimate, e.g. mapping a single gamepad's
+	// face buttons to P1 and its dpad to P2).
+	ClearControlsWithDeviceIdAndPadIndex(deviceId, targetPadIndex);
 
 #if PPSSPP_PLATFORM(ANDROID)
 	if (name.find("Xbox") != std::string::npos) {
-		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_XBOX, false);
+		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_XBOX, false, targetPadIndex);
 	} else if (name == "Retro Station Controller") {
-		SetDefaultKeyMap(DEFAULT_MAPPING_RETROID_CONTROLLER, false);
+		SetDefaultKeyMap(DEFAULT_MAPPING_RETROID_CONTROLLER, false, targetPadIndex);
 	} else {
-		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_PAD, false);
+		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_PAD, false, targetPadIndex);
 	}
 #else
 #if PPSSPP_PLATFORM(WINDOWS)
@@ -988,16 +1027,20 @@ void AutoConfForPad(std::string_view name) {
 	const bool platformSupportsXinput = false;
 #endif
 	if (platformSupportsXinput && name.find("Xbox") != std::string::npos) {
-		SetDefaultKeyMap(DEFAULT_MAPPING_XINPUT, false);
+		SetDefaultKeyMap(DEFAULT_MAPPING_XINPUT, false, targetPadIndex);
 	} else {
-		SetDefaultKeyMap(DEFAULT_MAPPING_PAD, false);
+		SetDefaultKeyMap(DEFAULT_MAPPING_PAD, false, targetPadIndex);
 	}
 #endif
 
-	// Add a couple of convenient keyboard mappings by default, too.
+	// Add a couple of convenient keyboard mappings by default, too. These
+	// are always pad 0 — keyboard shortcuts are global "emulator-level"
+	// actions, not per-player gameplay bindings.
 #if !defined(MOBILE_DEVICE)
-	g_controllerMap[VIRTKEY_PAUSE].push_back(MultiInputMapping(InputMapping(DEVICE_ID_KEYBOARD, NKCODE_ESCAPE)));
-	g_controllerMap[VIRTKEY_FASTFORWARD].push_back(MultiInputMapping(InputMapping(DEVICE_ID_KEYBOARD, NKCODE_TAB)));
+	if (targetPadIndex == 0) {
+		g_controllerMap[VIRTKEY_PAUSE].push_back(MultiInputMapping(InputMapping(DEVICE_ID_KEYBOARD, NKCODE_ESCAPE)));
+		g_controllerMap[VIRTKEY_FASTFORWARD].push_back(MultiInputMapping(InputMapping(DEVICE_ID_KEYBOARD, NKCODE_TAB)));
+	}
 #endif
 	g_controllerMapGeneration++;
 }

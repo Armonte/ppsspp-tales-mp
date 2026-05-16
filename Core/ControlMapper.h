@@ -76,22 +76,36 @@ private:
 	void UpdateAnalogOutput(int padIndex, int stick);
 
 	void onVKey(VirtKey vkey, bool down);
-	void onVKeyAnalog(int deviceId, VirtKey vkey, float value);
+	// `padIndex` selects which PSP pad slot this analog event drives.
+	// Virtkey-driven analog inputs (where a stick is mapped via
+	// VIRTKEY_AXIS_X_MIN/MAX etc) used to be hardcoded to pad 0; this
+	// param closes that hole so a P2 controller's stick reaches P2.
+	void onVKeyAnalog(int deviceId, int padIndex, VirtKey vkey, float value);
 
 	void UpdateCurInputAxis(const InputMapping &mapping, float value, double timestamp);
 	float GetDeviceAxisThreshold(int device, const InputMapping &mapping);
 
+	// "Is this virtkey currently on for ANY pad?" Used by system-level
+	// vkey callers (FASTFORWARD, PAUSE, ANALOG_LIGHTLY etc) where the
+	// answer is "any controller pressed it" regardless of pad index.
 	bool IsVirtKeyOn(VirtKey key) const {
 		int index = key - VIRTKEY_FIRST;
 		if (index < 0 || index >= VIRTKEY_COUNT) {
 			return false;
 		}
-		return virtKeyOn_[index];
+		for (int pad = 0; pad < NUM_VIRTUAL_PADS; ++pad) {
+			if (virtKeyOn_[pad][index]) return true;
+		}
+		return false;
 	}
 
 	// To track mappable virtual keys. We can have as many as we want.
-	float virtKeys_[VIRTKEY_COUNT]{};
-	bool virtKeyOn_[VIRTKEY_COUNT]{};  // Track boolean output separaately since thresholds may differ.
+	// Indexed by [padIndex][vkey_index]. Per-pad because analog stick
+	// virtkeys need separate state per virtual PSP pad — without this,
+	// pad 2's stick deflection would get summed with pad 0's and dumped
+	// onto whichever single pad was last fixed by the dispatcher.
+	float virtKeys_[NUM_VIRTUAL_PADS][VIRTKEY_COUNT]{};
+	bool virtKeyOn_[NUM_VIRTUAL_PADS][VIRTKEY_COUNT]{};  // Track boolean output separately since thresholds may differ.
 
 	// This is only used for co-axis (analog stick to buttons), so not bothering to track separately
 	// per device.
