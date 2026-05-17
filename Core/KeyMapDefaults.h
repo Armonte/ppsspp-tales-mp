@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Common/Input/InputState.h"  // InputDeviceID, DEVICE_ID_INVALID
+
 namespace KeyMap {
 
 enum DefaultMaps {
@@ -19,6 +21,13 @@ enum DefaultMaps {
 // `targetPadIndex` chooses which PSP virtual pad slot the default mappings
 // drive. Default 0 = main pad (existing behavior). 1..N-1 = extra pads
 // (multiplayer via the EXTRA_PAD MMIO mirror).
-void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex = 0);
+//
+// `deviceIdOverride` lets callers force a specific physical device id
+// instead of the per-profile hardcoded primary (DEVICE_ID_XINPUT_0,
+// DEVICE_ID_PAD_0, etc). Necessary when the user has multiple controllers
+// of the same type and wants to bind one of them specifically — without
+// the override, autoconfigure would dump every Xbox profile into XINPUT_0
+// no matter which pad they actually picked.
+void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex = 0, InputDeviceID deviceIdOverride = DEVICE_ID_ANY);
 
 }  // namespace

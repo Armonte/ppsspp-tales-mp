@@ -16,6 +16,7 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include "ppsspp_config.h"
+#include <map>
 #include <algorithm>
 #include <deque>
 #include <mutex>
@@ -358,26 +359,46 @@ void ControlMappingScreen::OnPadChanged(UI::EventParams &e) {
 
 
 void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
+	// Enumerate physical devices, not unique names. Two controllers with
+	// the same name (e.g. two Xbox 360 pads) each get their own entry so
+	// the user can bind each one independently. The parallel device-id list
+	// lets the popup callback look up the exact id by the chosen index
+	// without going back through name-string matching.
+	autoConfDeviceIds_.clear();
 	std::vector<std::string> items;
-	const auto seenPads = KeyMap::GetSeenPads();
-	for (auto s = seenPads.begin(), end = seenPads.end(); s != end; ++s) {
-		items.push_back(*s);
+	auto devices = KeyMap::GetSeenPadDevices();
+
+	// Count how many devices share each name so we know whether to add
+	// a "(#N)" suffix for disambiguation.
+	std::map<std::string, int> nameCounts;
+	for (auto &d : devices) nameCounts[d.second]++;
+	std::map<std::string, int> nameSeen;
+	for (auto &d : devices) {
+		std::string label = d.second;
+		if (nameCounts[d.second] > 1) {
+			int idx = ++nameSeen[d.second];  // 1-based
+			label += " (#" + std::to_string(idx) + ")";
+		}
+		items.push_back(label);
+		autoConfDeviceIds_.push_back(d.first);
 	}
+
 	auto km = GetI18NCategory(I18NCat::KEYMAPPING);
 	auto di = GetI18NCategory(I18NCat::DIALOG);
 	// Uses a callback, since in portrait the settings are in a popup, which would get dialogFinished instead of us.
-	// Applies the device's defaults to the pad slot being edited (g_currentEditPad): with extra pads off
-	// the "Virtual Pad" picker isn't shown and it stays 0, which is exactly upstream's behaviour.
-	UI::ListPopupScreen *autoConfList = new UI::ListPopupScreen(km->T("Autoconfigure for device"), items, -1, [items](int index) {
-		KeyMap::AutoConfForPad(items[index], g_currentEditPad);
+	// The callback only ever fires for this popup, so no other ListPopupScreen (the Virtual Pad picker, any
+	// PopupMultiChoice) can be mistaken for an autoconfig result. Applies the device's defaults to the pad slot
+	// being edited (g_currentEditPad); with extra pads off that stays 0, which is upstream's behaviour.
+	UI::ListPopupScreen *autoConfList = new UI::ListPopupScreen(km->T("Autoconfigure for device"), items, -1, [this](int index) {
+		// Name-based matching can't tell duplicate controllers apart (two Xbox pads share a name), so the
+		// device id stored when building the list is the only reliable handle.
+		if (index >= 0 && index < (int)autoConfDeviceIds_.size()) {
+			KeyMap::AutoConfForPadDevice(autoConfDeviceIds_[index], g_currentEditPad);
+		}
 	});
 	autoConfList->SetNotification(NoticeLevel::WARN, di->T("This will overwrite the existing configuration"));
 	if (params.v)
 		autoConfList->SetPopupOrigin(params.v);
-	// Remember which popup we're awaiting so dialogFinished can tell us apart
-	// from every OTHER ListPopupScreen on this screen (Virtual Pad picker,
-	// any PopupMultiChoice settings). They all share tag() == "listpopup".
-	pendingAutoConfPopup_ = autoConfList;
 	screenManager()->push(autoConfList);
 }
 
