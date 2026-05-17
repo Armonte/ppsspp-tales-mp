@@ -64,6 +64,14 @@ private:
 	int keyMapGeneration_ = -1;
 
 	bool categoryToggles_[10]{};
+
+	// Pointer to the autoconfig list popup, captured at launch. dialogFinished
+	// only treats a closing "listpopup" as an autoconfig result if its pointer
+	// matches this — without this guard, ANY ListPopupScreen closing (e.g. the
+	// Virtual Pad picker, any PopupMultiChoice on this screen) would fire
+	// AutoConfForPad with garbage strings and dump default mappings onto the
+	// currently-selected pad slot.
+	const Screen *pendingAutoConfPopup_ = nullptr;
 };
 
 class KeyMappingNewKeyDialog : public UI::PopupScreen {

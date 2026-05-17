@@ -359,18 +359,29 @@ void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
 	autoConfList->SetNotification(NoticeLevel::WARN, di->T("This will overwrite the existing configuration"));
 	if (params.v)
 		autoConfList->SetPopupOrigin(params.v);
+	// Remember which popup we're awaiting so dialogFinished can tell us apart
+	// from every OTHER ListPopupScreen on this screen (Virtual Pad picker,
+	// any PopupMultiChoice settings). They all share tag() == "listpopup".
+	pendingAutoConfPopup_ = autoConfList;
 	screenManager()->push(autoConfList);
 }
 
 void ControlMappingScreen::dialogFinished(const Screen *dialog, DialogResult result) {
-	if (result == DR_OK && !strcmp(dialog->tag(), "listpopup")) {
-		UI::ListPopupScreen *popup = (UI::ListPopupScreen *)dialog;
-		// Apply the autoconfigured default mappings to the PSP pad slot
-		// the user is currently editing (g_currentEditPad). If extra pads
-		// aren't enabled, the "Virtual Pad" picker isn't shown and
-		// g_currentEditPad stays at 0, so this behaves exactly like
-		// upstream.
-		KeyMap::AutoConfForPad(popup->GetChoiceString(), g_currentEditPad);
+	// Only treat this closing popup as an autoconfig result if it's the one
+	// we explicitly launched. Without the pointer match, the Virtual Pad
+	// picker (also a ListPopupScreen, also tag "listpopup") would route its
+	// choice string into AutoConfForPad and dump default mappings onto
+	// whatever pad slot the user just selected.
+	if (dialog == pendingAutoConfPopup_) {
+		pendingAutoConfPopup_ = nullptr;
+		if (result == DR_OK) {
+			UI::ListPopupScreen *popup = (UI::ListPopupScreen *)dialog;
+			// Bind to whichever pad slot the user has selected in the
+			// "Virtual Pad" picker. When extra pads are off that picker
+			// isn't rendered and g_currentEditPad stays at 0 — upstream
+			// behavior.
+			KeyMap::AutoConfForPad(popup->GetChoiceString(), g_currentEditPad);
+		}
 	}
 }
 
