@@ -998,14 +998,31 @@ static void ClearControlsWithDeviceIdAndPadIndex(InputDeviceID deviceId, int pad
 
 void AutoConfForPad(std::string_view name, int targetPadIndex) {
 	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
-
+	// Look up the device id by name. If multiple devices share this name
+	// (e.g. two Xbox controllers), only ONE can be bound this way — the
+	// "last match wins" in iteration order. Callers that need to pick a
+	// specific device of a duplicate-named pair should use
+	// AutoConfForPadDevice with the exact id instead.
 	InputDeviceID deviceId = DEVICE_ID_PAD_0;
 	for (auto [padDeviceId, padName] : g_padNames) {
 		if (padName == name) {
-			// Already configured.
 			deviceId = padDeviceId;
 		}
 	}
+	AutoConfForPadDevice(deviceId, targetPadIndex);
+}
+
+void AutoConfForPadDevice(InputDeviceID deviceId, int targetPadIndex) {
+	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
+
+	// Look up the friendly name so we can still pick the right default
+	// mapping profile (Xbox -> xinput, generic -> pad, etc).
+	std::string name;
+	auto nameIter = g_padNames.find(deviceId);
+	if (nameIter != g_padNames.end()) {
+		name = nameIter->second;
+	}
+
 	// Only clear the slot we're about to write; preserve any pre-existing
 	// bindings the user set up for OTHER PSP pads on this same physical
 	// controller (rare but legitimate, e.g. mapping a single gamepad's
@@ -1014,11 +1031,11 @@ void AutoConfForPad(std::string_view name, int targetPadIndex) {
 
 #if PPSSPP_PLATFORM(ANDROID)
 	if (name.find("Xbox") != std::string::npos) {
-		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_XBOX, false, targetPadIndex);
+		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_XBOX, false, targetPadIndex, deviceId);
 	} else if (name == "Retro Station Controller") {
-		SetDefaultKeyMap(DEFAULT_MAPPING_RETROID_CONTROLLER, false, targetPadIndex);
+		SetDefaultKeyMap(DEFAULT_MAPPING_RETROID_CONTROLLER, false, targetPadIndex, deviceId);
 	} else {
-		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_PAD, false, targetPadIndex);
+		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_PAD, false, targetPadIndex, deviceId);
 	}
 #else
 #if PPSSPP_PLATFORM(WINDOWS)
@@ -1027,9 +1044,9 @@ void AutoConfForPad(std::string_view name, int targetPadIndex) {
 	const bool platformSupportsXinput = false;
 #endif
 	if (platformSupportsXinput && name.find("Xbox") != std::string::npos) {
-		SetDefaultKeyMap(DEFAULT_MAPPING_XINPUT, false, targetPadIndex);
+		SetDefaultKeyMap(DEFAULT_MAPPING_XINPUT, false, targetPadIndex, deviceId);
 	} else {
-		SetDefaultKeyMap(DEFAULT_MAPPING_PAD, false, targetPadIndex);
+		SetDefaultKeyMap(DEFAULT_MAPPING_PAD, false, targetPadIndex, deviceId);
 	}
 #endif
 
@@ -1048,6 +1065,16 @@ void AutoConfForPad(std::string_view name, int targetPadIndex) {
 const std::set<std::string> &GetSeenPads() {
 	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
 	return g_seenPads;
+}
+
+std::vector<std::pair<InputDeviceID, std::string>> GetSeenPadDevices() {
+	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
+	std::vector<std::pair<InputDeviceID, std::string>> out;
+	out.reserve(g_padNames.size());
+	for (auto &entry : g_padNames) {
+		out.emplace_back(entry.first, entry.second);
+	}
+	return out;
 }
 
 std::string PadName(InputDeviceID deviceId) {

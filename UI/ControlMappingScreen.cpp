@@ -348,11 +348,30 @@ void ControlMappingScreen::OnPadChanged(UI::EventParams &e) {
 
 
 void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
+	// Enumerate physical devices, not unique names. Two controllers with
+	// the same name (e.g. two Xbox 360 pads) each get their own entry so
+	// the user can bind each one independently. We also track the parallel
+	// device-id list so dialogFinished can look up the exact id by the
+	// chosen index without going back through name-string matching.
+	autoConfDeviceIds_.clear();
 	std::vector<std::string> items;
-	const auto seenPads = KeyMap::GetSeenPads();
-	for (auto s = seenPads.begin(), end = seenPads.end(); s != end; ++s) {
-		items.push_back(*s);
+	auto devices = KeyMap::GetSeenPadDevices();
+
+	// Count how many devices share each name so we know whether to add
+	// a "(#N)" suffix for disambiguation.
+	std::map<std::string, int> nameCounts;
+	for (auto &d : devices) nameCounts[d.second]++;
+	std::map<std::string, int> nameSeen;
+	for (auto &d : devices) {
+		std::string label = d.second;
+		if (nameCounts[d.second] > 1) {
+			int idx = ++nameSeen[d.second];  // 1-based
+			label += " (#" + std::to_string(idx) + ")";
+		}
+		items.push_back(label);
+		autoConfDeviceIds_.push_back(d.first);
 	}
+
 	auto km = GetI18NCategory(I18NCat::KEYMAPPING);
 	auto di = GetI18NCategory(I18NCat::DIALOG);
 	UI::ListPopupScreen *autoConfList = new UI::ListPopupScreen(km->T("Autoconfigure for device"), items, -1);
@@ -376,11 +395,14 @@ void ControlMappingScreen::dialogFinished(const Screen *dialog, DialogResult res
 		pendingAutoConfPopup_ = nullptr;
 		if (result == DR_OK) {
 			UI::ListPopupScreen *popup = (UI::ListPopupScreen *)dialog;
-			// Bind to whichever pad slot the user has selected in the
-			// "Virtual Pad" picker. When extra pads are off that picker
-			// isn't rendered and g_currentEditPad stays at 0 — upstream
-			// behavior.
-			KeyMap::AutoConfForPad(popup->GetChoiceString(), g_currentEditPad);
+			// Look up the exact device id by the chosen index — name-based
+			// matching can't distinguish duplicate controllers (two Xbox
+			// pads share the same name string), so the only reliable handle
+			// is the device id we stored when building the list.
+			int choiceIdx = popup->GetChoice();
+			if (choiceIdx >= 0 && choiceIdx < (int)autoConfDeviceIds_.size()) {
+				KeyMap::AutoConfForPadDevice(autoConfDeviceIds_[choiceIdx], g_currentEditPad);
+			}
 		}
 	}
 }

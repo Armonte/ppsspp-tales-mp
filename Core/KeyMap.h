@@ -216,7 +216,7 @@ namespace KeyMap {
 	void ClearAllMappings();
 	void DeleteNthMapping(int key, int number);
 
-	void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex);
+	void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex, InputDeviceID deviceIdOverride);
 
 	void RestoreDefault();
 
@@ -233,13 +233,29 @@ namespace KeyMap {
 	bool HasBuiltinController(std::string_view name);
 
 	const std::set<std::string> &GetSeenPads();
+	// Returns every seen physical device by id+name, NOT deduplicated by name.
+	// This is what autoconfigure UIs should iterate when the user might have
+	// multiple identically-named controllers (two Xbox pads, two DualShocks
+	// etc) and needs to bind each one independently.
+	std::vector<std::pair<InputDeviceID, std::string>> GetSeenPadDevices();
 	std::string PadName(InputDeviceID deviceId);
 	// Apply a default mapping profile for the given controller name.
 	// `targetPadIndex` chooses which PSP virtual pad (0 = primary, 1..N-1 =
 	// extra pads) the resulting bindings drive. Existing bindings on that
 	// device that already target a DIFFERENT pad index are preserved — only
 	// the slot we're configuring gets cleared.
+	//
+	// Looks up the device id by name, which is only useful when there's a
+	// single controller of that type. For multi-controller setups (two
+	// Xbox pads etc), use AutoConfForPadDevice instead.
 	void AutoConfForPad(std::string_view name, int targetPadIndex = 0);
+
+	// Same as AutoConfForPad but operates directly on a specific device id,
+	// so identically-named duplicate controllers can each be bound to their
+	// own PSP pad slot. The mapping profile is still picked by the device's
+	// name (Xbox -> xinput defaults, etc), but the bindings written go to
+	// the actual device, not the hardcoded "first of its type".
+	void AutoConfForPadDevice(InputDeviceID deviceId, int targetPadIndex = 0);
 
 	bool IsKeyMapped(InputDeviceID device, int key);
 

@@ -356,55 +356,64 @@ static void SetDefaultKeyMap(InputDeviceID deviceId, const DefMappingStruct *arr
 	g_seenDeviceIds.insert(deviceId);
 }
 
-void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex) {
+void SetDefaultKeyMap(DefaultMaps dmap, bool replace, int targetPadIndex, InputDeviceID deviceIdOverride) {
+	// Helper: pick the actual device id to write to. The dispatcher cases
+	// below have a "canonical" device id (e.g. DEVICE_ID_XINPUT_0 for the
+	// Xbox profile) which is used when no override is passed. Callers that
+	// want to bind a specific physical device — for multi-controller
+	// setups where two devices share a profile type — pass it explicitly.
+	auto pick = [deviceIdOverride](InputDeviceID canonical) -> InputDeviceID {
+		return deviceIdOverride != DEVICE_ID_ANY ? deviceIdOverride : canonical;
+	};
+
 	switch (dmap) {
 	case DEFAULT_MAPPING_KEYBOARD:
 	{
 		int keyboardLayout = (int)System_GetPropertyInt(SYSPROP_KEYBOARD_LAYOUT);
 		switch (keyboardLayout) {
 		case KEYBOARD_LAYOUT_QWERTZ:
-			SetDefaultKeyMap(DEVICE_ID_KEYBOARD, defaultQwertzKeyboardKeyMap, ARRAY_SIZE(defaultQwertzKeyboardKeyMap), replace, targetPadIndex);
+			SetDefaultKeyMap(pick(DEVICE_ID_KEYBOARD), defaultQwertzKeyboardKeyMap, ARRAY_SIZE(defaultQwertzKeyboardKeyMap), replace, targetPadIndex);
 			break;
 		case KEYBOARD_LAYOUT_AZERTY:
-			SetDefaultKeyMap(DEVICE_ID_KEYBOARD, defaultAzertyKeyboardKeyMap, ARRAY_SIZE(defaultAzertyKeyboardKeyMap), replace, targetPadIndex);
+			SetDefaultKeyMap(pick(DEVICE_ID_KEYBOARD), defaultAzertyKeyboardKeyMap, ARRAY_SIZE(defaultAzertyKeyboardKeyMap), replace, targetPadIndex);
 			break;
 		case KEYBOARD_LAYOUT_QWERTY:
 		default:
-			SetDefaultKeyMap(DEVICE_ID_KEYBOARD, defaultQwertyKeyboardKeyMap, ARRAY_SIZE(defaultQwertyKeyboardKeyMap), replace, targetPadIndex);
+			SetDefaultKeyMap(pick(DEVICE_ID_KEYBOARD), defaultQwertyKeyboardKeyMap, ARRAY_SIZE(defaultQwertyKeyboardKeyMap), replace, targetPadIndex);
 			break;
 		}
 	}
 	break;
 	case DEFAULT_MAPPING_XINPUT:
-		SetDefaultKeyMap(DEVICE_ID_XINPUT_0, defaultXInputKeyMap, ARRAY_SIZE(defaultXInputKeyMap), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_XINPUT_0), defaultXInputKeyMap, ARRAY_SIZE(defaultXInputKeyMap), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_SHIELD:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultShieldKeyMap, ARRAY_SIZE(defaultShieldKeyMap), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultShieldKeyMap, ARRAY_SIZE(defaultShieldKeyMap), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_MOQI_I7S:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultMOQI7SKeyMap, ARRAY_SIZE(defaultMOQI7SKeyMap), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultMOQI7SKeyMap, ARRAY_SIZE(defaultMOQI7SKeyMap), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_PAD:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultPadMap, ARRAY_SIZE(defaultPadMap), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultPadMap, ARRAY_SIZE(defaultPadMap), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_ANDROID_PAD:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultPadMapAndroid, ARRAY_SIZE(defaultPadMapAndroid), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultPadMapAndroid, ARRAY_SIZE(defaultPadMapAndroid), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_IOS_PAD:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultPadMapIOS, ARRAY_SIZE(defaultPadMapIOS), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultPadMapIOS, ARRAY_SIZE(defaultPadMapIOS), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_XPERIA_PLAY:
-		SetDefaultKeyMap(DEVICE_ID_DEFAULT, defaultXperiaPlay, ARRAY_SIZE(defaultXperiaPlay), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_DEFAULT), defaultXperiaPlay, ARRAY_SIZE(defaultXperiaPlay), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_ANDROID_XBOX:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultAndroidXboxControllerMap, ARRAY_SIZE(defaultAndroidXboxControllerMap), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultAndroidXboxControllerMap, ARRAY_SIZE(defaultAndroidXboxControllerMap), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_RETROID_CONTROLLER:
-		SetDefaultKeyMap(DEVICE_ID_PAD_0, defaultRetroidControllerMap, ARRAY_SIZE(defaultRetroidControllerMap), replace, targetPadIndex);
+		SetDefaultKeyMap(pick(DEVICE_ID_PAD_0), defaultRetroidControllerMap, ARRAY_SIZE(defaultRetroidControllerMap), replace, targetPadIndex);
 		break;
 	case DEFAULT_MAPPING_VR_HEADSET:
-		// VR controllers stay on pad 0 — headset-button -> emulator-action mappings
-		// are emulator-level, not per-player.
+		// VR controllers stay on their own device ids — they're not
+		// player-pad bindings, they're emulator-action bindings.
 		SetDefaultKeyMap(DEVICE_ID_XR_CONTROLLER_LEFT, defaultVRLeftController, ARRAY_SIZE(defaultVRLeftController), replace);
 		SetDefaultKeyMap(DEVICE_ID_XR_CONTROLLER_RIGHT, defaultVRRightController, ARRAY_SIZE(defaultVRRightController), replace);
 		break;

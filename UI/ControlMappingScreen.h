@@ -72,6 +72,11 @@ private:
 	// AutoConfForPad with garbage strings and dump default mappings onto the
 	// currently-selected pad slot.
 	const Screen *pendingAutoConfPopup_ = nullptr;
+	// Parallel to the autoconfig popup's items list — indexed by the choice
+	// the user picks, gives us the exact physical device id to bind. Needed
+	// because identically-named controllers (two Xbox pads) would otherwise
+	// resolve to the same single device when looked up by name.
+	std::vector<InputDeviceID> autoConfDeviceIds_;
 };
 
 class KeyMappingNewKeyDialog : public UI::PopupScreen {
