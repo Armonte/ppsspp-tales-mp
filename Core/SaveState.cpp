@@ -54,7 +54,6 @@
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/HLE/sceKernel.h"
-#include "Core/ModularPatch.h"
 #include "Core/HLE/sceKernelModule.h"
 #include "Core/HLE/sceUtility.h"
 #include "Core/HLE/sceSas.h"
@@ -1381,14 +1380,6 @@ int g_screenshotFailures;
 
 			hasLoadedState = true;
 			Core_ResetException();
-			// Re-apply modular patches if applicable. Savestates restore the
-			// game's RAM (including the EBOOT), which overwrites the MIPS
-			// hook installed at game load. We re-read the active patch file
-			// and re-apply it. (ModularPatch::ApplyForModule does its own
-			// no-op when no JSON matches, so this is safe for unpatched games.)
-			if (ModularPatch::IsActive()) {
-				ModularPatch::ApplyForModule(ModularPatch::ActiveName());
-			}
 
 			if (op.slot >= 0)
 				message = SlotPrefix(op.slot) + message;

@@ -1242,7 +1242,6 @@ set(NativeAssets
 	assets/asciifont_atlas.zim
 	assets/asciifont_atlas.meta
 	assets/debugger
-	assets/patches
 	assets/upload
 	assets/lang
 	assets/shaders

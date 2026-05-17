@@ -661,8 +661,6 @@ add_library(Core STATIC
 	MemFault.h
 	MemMap.cpp
 	MemMap.h
-	ModularPatch.cpp
-	ModularPatch.h
 	MemMapFunctions.cpp
 	MemMapHelpers.h
 	Opcode.h
