@@ -374,6 +374,10 @@ void ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
 	autoConfList->SetNotification(NoticeLevel::WARN, di->T("This will overwrite the existing configuration"));
 	if (params.v)
 		autoConfList->SetPopupOrigin(params.v);
+	// Remember which popup we're awaiting so dialogFinished can tell us apart
+	// from every OTHER ListPopupScreen on this screen (Virtual Pad picker,
+	// any PopupMultiChoice settings). They all share tag() == "listpopup".
+	pendingAutoConfPopup_ = autoConfList;
 	screenManager()->push(autoConfList);
 }
 
