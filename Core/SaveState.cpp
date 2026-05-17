@@ -24,7 +24,6 @@
 
 #include "Common/Data/Text/I18n.h"
 #include "Common/Thread/ThreadUtil.h"
-#include "Core/ModularPatch.h"
 #include "Common/Data/Text/Parsers.h"
 #include "Common/System/System.h"
 
@@ -833,14 +832,11 @@ int g_screenshotFailures;
 					callbackResult = TriggerLoadWarnings(callbackMessage);
 					hasLoadedState = true;
 					Core_ResetException();
-					// Re-apply modular patches if applicable. Savestates restore the
-					// game's RAM (including the EBOOT), which overwrites the MIPS
-					// hook installed at game load. We re-read the active patch file
-					// and re-apply it. (ModularPatch::ApplyForModule does its own
-					// no-op when no JSON matches, so this is safe for unpatched games.)
-					if (ModularPatch::IsActive()) {
-						ModularPatch::ApplyForModule(ModularPatch::ActiveName());
-					}
+					// CWcheat patches that wrote into RAM at load time are restored
+					// by the savestate itself (the bytes are in the snapshot). For
+					// `_O` cheats whose flag we want to reset so they can re-fire,
+					// no action needed — savestate restoration brings back the
+					// patched bytes verbatim, no re-apply required.
 
 					if (!slot_prefix.empty())
 						callbackMessage = slot_prefix + callbackMessage;

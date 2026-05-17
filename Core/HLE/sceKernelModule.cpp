@@ -38,7 +38,7 @@
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/HLETables.h"
 #include "Core/HLE/Plugins.h"
-#include "Core/ModularPatch.h"
+#include "Core/CwCheat.h"
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/Reporting.h"
@@ -1798,12 +1798,12 @@ bool __KernelLoadExec(const char *filename, u32 paramPtr, std::string *error_str
 
 	INFO_LOG(Log::Loader, "Module entry: %08x (%s %04x)", mipsr4k.pc, moduleName, moduleVersion);
 
-	// Hook point for game-specific MIPS patches: module is loaded and relocated
-	// in RAM, but no MIPS code has executed yet (entry function isn't called
-	// until __KernelStartModule below). The modular patch system reads JSON
-	// files from assets/patches/ and matches by module name substring, so
-	// PPSSPP source stays game-agnostic.
-	ModularPatch::ApplyForModule(moduleName);
+	// Notify the cheat engine that a new module is loaded. Used by `_M`-
+	// scoped and `_O` cheats — the engine fires any apply-once-on-load
+	// cheats whose `_M` substring matches `moduleName` synchronously,
+	// before the module's entry point runs. That's how game-specific
+	// patches stay portable: they live in cheats.db, not in PPSSPP source.
+	CheatNotifyModuleLoaded(moduleName);
 
 	SceKernelSMOption option;
 	option.size = sizeof(SceKernelSMOption);
@@ -2203,6 +2203,11 @@ static u32 sceKernelUnloadModule(u32 moduleId) {
 	PSPModule *module = kernelObjects.Get<PSPModule>(moduleId, error);
 	if (!module)
 		return hleDelayResult(hleLogError(Log::sceModule, error), "module unloaded", 150);
+
+	// Notify the cheat engine before teardown so any `_M`-scoped cheats
+	// for this module stop firing and `_O` cheats get their fired-flag
+	// cleared (a subsequent reload of the same module name re-fires them).
+	CheatNotifyModuleUnloaded(module->nm.name);
 
 	module->Cleanup();
 	kernelObjects.Destroy<PSPModule>(moduleId);

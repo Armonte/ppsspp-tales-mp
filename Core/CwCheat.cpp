@@ -39,7 +39,24 @@
 static int CheatEvent = -1;
 static CWCheatEngine *cheatEngine;
 static bool cheatsEnabled;
+// Names of PSP modules currently loaded. Maintained by
+// CheatNotifyModuleLoaded / Unloaded called from sceKernelModule. Used to
+// gate `_M`-scoped cheats: a cheat with moduleMatch="X" only fires while
+// some entry of this vector contains "X" as a substring. Order doesn't
+// matter; duplicates can occur if the same module loads twice but that's
+// fine for substring matching.
+static std::vector<std::string> g_loadedModules;
 using namespace SceCtrl;
+
+// Returns true if `match` is non-empty AND no currently-loaded module name
+// contains it as a substring. Empty `match` means "no gating" (matches).
+static bool ModuleScopeBlocks(std::string_view match) {
+	if (match.empty()) return false;
+	for (const auto &name : g_loadedModules) {
+		if (name.find(match) != std::string::npos) return false;
+	}
+	return true;
+}
 
 void hleCheat(u64 userdata, int cyclesLate);
 
@@ -98,9 +115,18 @@ bool CheatFileParser::Parse() {
 
 void CheatFileParser::Flush() {
 	if (!pendingLines_.empty()) {
-		cheats_.push_back(CheatCode{lastCheatInfo_.name, pendingLines_});
+		CheatCode c;
+		c.name = lastCheatInfo_.name;
+		c.lines = pendingLines_;
+		// Snapshot the scope state at flush time. moduleMatch persists
+		// across multiple _C blocks (the `_M` scope), while applyOnce
+		// is per-cheat — reset right after for the next _C.
+		c.moduleMatch = currentModuleMatch_;
+		c.applyOnce = currentApplyOnce_;
+		cheats_.push_back(std::move(c));
 		FlushCheatInfo();
 		pendingLines_.clear();
+		currentApplyOnce_ = false;
 	}
 }
 
@@ -172,9 +198,63 @@ void CheatFileParser::ParseLine(const std::string &line, int lineNumber) {
 		ParseDataLine(line.substr(2), lineNumber);
 		return;
 
-	case 'M':
-		// TempAR data line.
-		AddError("TempAR codes not supported", lineNumber);
+	case 'M': {
+		// Two possible meanings for `_M`:
+		//  1) Our new module-name substring directive. Scopes every
+		//     subsequent `_C` block until the next `_M` (or end of file)
+		//     to only fire while a PSP module whose name contains the
+		//     given substring is currently loaded. A bare `_M` (no
+		//     argument) clears the scope back to global.
+		//     Example:
+		//       _M TOP_NARIKIRI_DUNGEON_R
+		//       _C0 NDX-only patches
+		//       _L ...
+		//  2) Legacy TempAR data line — `_M 0xHEX 0xHEX`. PPSSPP has
+		//     never actually supported TempAR, only rejected those lines
+		//     with a helpful error. Preserve that error so users
+		//     importing a TempAR file get the same diagnostic as before.
+		// Distinguish by content shape — a non-empty value that scans
+		// as two hex words is TempAR; anything else is treated as a
+		// module substring (including empty, which is the explicit
+		// "back to global scope" form).
+		Flush();  // commit any in-flight _C before changing scope
+		std::string value;
+		if (line.length() > 2) value = line.substr(2);
+		// Trim whitespace + strip any trailing inline ";" / "//" comment.
+		auto trim = [](std::string &s) {
+			while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) s.pop_back();
+			size_t i = 0;
+			while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+			s.erase(0, i);
+		};
+		trim(value);
+		// Strip inline comment.
+		size_t commentAt = std::string::npos;
+		if (size_t at = value.find(';'); at != std::string::npos) commentAt = at;
+		if (size_t at = value.find("//"); at != std::string::npos && at < commentAt) commentAt = at;
+		if (commentAt != std::string::npos) value.resize(commentAt);
+		trim(value);
+		// TempAR shape check: two hex words separated by whitespace.
+		uint32_t a, b; int len = 0;
+		if (!value.empty() && sscanf(value.c_str(), "%x %x %n", &a, &b, &len) == 2 && (size_t)len == value.length()) {
+			AddError("TempAR codes not supported", lineNumber);
+			return;
+		}
+		currentModuleMatch_ = value;
+		return;
+	}
+
+	case 'O':
+		// `_O` (inside a _C block) — apply this cheat once when its
+		// gating module loads (per `_M`), or once at first frame after
+		// game boot if there's no `_M` scope. Useful for installing
+		// large code payloads that don't need per-frame re-application.
+		if (!cheatEnabled_) {
+			// _O outside an active _C is meaningless; quietly ignore
+			// rather than poison the file.
+			return;
+		}
+		currentApplyOnce_ = true;
 		return;
 
 	default:
@@ -222,6 +302,10 @@ static void __CheatStop() {
 		cheatEngine = nullptr;
 	}
 	cheatsEnabled = false;
+	// Clear loaded-module tracking; otherwise gating from a previous game
+	// session would carry into the next boot (rare but real, e.g. game A
+	// loads a module X, game B doesn't but happens to substring-match).
+	g_loadedModules.clear();
 }
 
 static void __CheatStart() {
@@ -1157,10 +1241,26 @@ void CWCheatEngine::Run() {
 	}
 
 	for (const CheatCode &cheat : cheats_) {
+		// Module-scope gate: if the cheat's _M doesn't match any loaded
+		// module, skip entirely. Empty moduleMatch = no gate (always runs).
+		if (ModuleScopeBlocks(cheat.moduleMatch)) {
+			continue;
+		}
+		// Apply-once gate: if _O was set and we've already dispatched this
+		// cheat for the current module-load epoch, skip. The flag is reset
+		// by CheatNotifyModuleUnloaded so a re-load fires the cheat again.
+		// For _O cheats without a _M, the flag stays set for the whole
+		// session (correct — they were authored as "install once at boot").
+		if (cheat.applyOnce && cheat.firedAlready) {
+			continue;
+		}
 		// InterpretNextOp and ExecuteOp move i.
 		for (size_t i = 0; i < cheat.lines.size(); ) {
 			CheatOperation op = InterpretNextCwCheat(cheat, i);
 			ExecuteOp(op, cheat, i);
+		}
+		if (cheat.applyOnce) {
+			cheat.firedAlready = true;
 		}
 	}
 }
@@ -1169,10 +1269,59 @@ bool CWCheatEngine::HasCheats() {
 	return !cheats_.empty();
 }
 
+void CWCheatEngine::RunOnceForModule(std::string_view moduleName) {
+	if (Achievements::HardcoreModeActive()) return;
+	for (CheatCode &cheat : cheats_) {
+		if (!cheat.applyOnce) continue;
+		if (cheat.moduleMatch.empty()) continue;  // _O-without-_M handled by Run()
+		if (moduleName.find(cheat.moduleMatch) == std::string_view::npos) continue;
+		if (cheat.firedAlready) continue;
+		// Same op-dispatch loop Run() uses.
+		for (size_t i = 0; i < cheat.lines.size(); ) {
+			CheatOperation op = InterpretNextCwCheat(cheat, i);
+			ExecuteOp(op, cheat, i);
+		}
+		cheat.firedAlready = true;
+	}
+}
+
+void CWCheatEngine::OnModuleUnloaded(std::string_view moduleName) {
+	for (CheatCode &cheat : cheats_) {
+		if (cheat.moduleMatch.empty()) continue;
+		if (moduleName.find(cheat.moduleMatch) == std::string_view::npos) continue;
+		cheat.firedAlready = false;
+	}
+}
+
 bool CheatsInEffect() {
 	if (!cheatEngine || !cheatsEnabled || Achievements::HardcoreModeActive())
 		return false;
 	return cheatEngine->HasCheats();
+}
+
+void CheatNotifyModuleLoaded(std::string_view moduleName) {
+	g_loadedModules.emplace_back(moduleName);
+	if (cheatEngine && cheatsEnabled && !Achievements::HardcoreModeActive()) {
+		// Fire _O cheats matching this module right now, before the module
+		// starts running its entry point. Non-_O _M-gated cheats will be
+		// picked up automatically on the next Run() tick (gating now passes).
+		cheatEngine->RunOnceForModule(moduleName);
+	}
+}
+
+void CheatNotifyModuleUnloaded(std::string_view moduleName) {
+	// Remove first match in case of duplicates. If a module loaded twice
+	// and unloads once, the per-frame gate still passes because the second
+	// entry remains — correct behavior.
+	for (auto it = g_loadedModules.begin(); it != g_loadedModules.end(); ++it) {
+		if (*it == moduleName) {
+			g_loadedModules.erase(it);
+			break;
+		}
+	}
+	if (cheatEngine) {
+		cheatEngine->OnModuleUnloaded(moduleName);
+	}
 }
 
 bool DetectCheatTitle(std::string_view name, std::string_view *title) {

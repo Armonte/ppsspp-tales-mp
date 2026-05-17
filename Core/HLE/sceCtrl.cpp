@@ -26,7 +26,6 @@
 #include "Core/HLE/ErrorCodes.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/sceCtrl.h"
-#include "Core/ModularPatch.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceKernelThread.h"
 #include "Core/HLE/sceKernelInterrupt.h"
@@ -184,51 +183,11 @@ static void __CtrlUpdateLatch()
 				buttons1, 0x0E000010);
 			last_logged_buttons1 = buttons1;
 		}
-		// NDX talesmp-patch diag: read MIPS-side scratch addresses written by
-		// the patch's hook + wrappers. Skip entirely when no modular patch is
-		// active so unpatched games don't see noise in their logs.
-		//   0x09F00400 = main hook (input_get_btn_make) total invocation count
-		//   0x09F00404 = current_char_idx (u8) at last main-hook invocation
-		//   0x09F00500 = char_update_wrapper total invocation count
-		//   0x09F00504 = char_update_wrapper slot-1 hits (pre-coop-flag check)
-		//   0x09F00520 = last $s1 (party slot idx) seen by wrapper
-		// TODO(talesmp): these specific addresses are baked into the NDX
-		// patch payloads. When generalizing the diag system, lift them
-		// from the patch JSON's "diag" section instead of hardcoding here.
-		static int diag_ticks = 0;
-		static u32 last_count = 0;
-		if (ModularPatch::IsActive() && ++diag_ticks >= 60) {  // every 60 VBlanks ~= 1 second
-			diag_ticks = 0;
-			if (Memory::IsValidAddress(0x09F00500)) {
-				const u32 w_total = Memory::Read_U32(0x09F00500);
-				const u32 w_slot1 = Memory::Read_U32(0x09F00504);
-				const u32 w_swap = Memory::Read_U32(0x09F00508);
-				const u32 w_last_s1 = Memory::Read_U8(0x09F00520);
-				const u32 w_mint_id = Memory::Read_U8(0x09F00524);
-				const u32 w_mint_mode = Memory::Read_U8(0x09F00525);
-				const u32 w_cless_t49 = Memory::Read_U8(0x09F00526);
-				const u32 w_mint_t49 = Memory::Read_U8(0x09F00527);
-				const u32 w_mint_t49_post = Memory::Read_U8(0x09F00528);
-				const u32 w_resolved_ptr = Memory::Read_U32(0x09F0052C);
-				// NDX leads: P1=Dio (party slot 0 typically), P2=Mell (party slot 1).
-				// Variable party (up to 4 PCs + summons + monsters), so naming "slot 0=Dio"
-				// is the convention but not invariant.
-				INFO_LOG(Log::sceCtrl, "TalesMp targets: Dio+49=%u Mell+49(pre)=%u Mell+49(post-jal)=%u resolved_char_ptrs[+49]=%08x",
-					w_cless_t49, w_mint_t49, w_mint_t49_post, w_resolved_ptr);
-				INFO_LOG(Log::sceCtrl, "TalesMp wrapper diag: total=%u slot1=%u swap=%u last_$s1=%u  Mell(id=%u,mode_before=%u)",
-					w_total, w_slot1, w_swap, w_last_s1, w_mint_id, w_mint_mode);
-			}
-			if (Memory::IsValidAddress(0x09F00400)) {
-				const u32 count = Memory::Read_U32(0x09F00400);
-				const u32 last_char_idx = Memory::Read_U8(0x09F00404);
-				if (count != last_count) {
-					INFO_LOG(Log::sceCtrl, "TalesMp diag: hook fired %u times, last char_idx=%u, MMIO pad %u buttons=%08x",
-						count, last_char_idx, last_char_idx,
-						last_char_idx < 8 ? Memory::Read_U32(0x0E000004 + last_char_idx * 16) : 0);
-					last_count = count;
-				}
-			}
-		}
+		// (NDX-specific scratch-RAM diag readouts removed along with
+		// ModularPatch. The CWcheat path is fully self-contained — if
+		// users want per-frame telemetry from their CWcheat payloads
+		// they can write the diag values to known addresses and inspect
+		// via the debugger memory view.)
 	}
 
 	ctrlBuf = (ctrlBuf + 1) % NUM_CTRL_BUFFERS;
