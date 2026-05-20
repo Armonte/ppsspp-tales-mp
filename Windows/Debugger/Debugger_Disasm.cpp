@@ -174,6 +174,9 @@ CDisasm::CDisasm(HINSTANCE _hInstance, HWND _hParent, MIPSDebugInterface *_cpu) 
 	watchList_ = new CtrlWatchList(GetDlgItem(m_hDlg, IDC_WATCHLIST), cpu);
 	bottomTabs->AddTab(watchList_->GetHandle(), L"Watch");
 
+	userSymbolList_ = new CtrlUserSymbolList(GetDlgItem(m_hDlg, IDC_USERSYMBOLLIST), cpu);
+	bottomTabs->AddTab(userSymbolList_->GetHandle(), L"User Syms");
+
 	bottomTabs->SetShowTabTitles(g_Config.bShowBottomTabTitles);
 	bottomTabs->ShowTab(memHandle);
 	
@@ -196,6 +199,7 @@ CDisasm::~CDisasm()
 	delete stackTraceView;
 	delete moduleList;
 	delete watchList_;
+	delete userSymbolList_;
 }
 
 void CDisasm::step(CPUStepType stepType) {
@@ -253,6 +257,9 @@ BOOL CDisasm::DlgProc(UINT message, WPARAM wParam, LPARAM lParam) {
 			return TRUE;
 		case IDC_WATCHLIST:
 			SetWindowLongPtr(m_hDlg, DWLP_MSGRESULT, watchList_->HandleNotify(lParam));
+			return TRUE;
+		case IDC_USERSYMBOLLIST:
+			SetWindowLongPtr(m_hDlg, DWLP_MSGRESULT, userSymbolList_->HandleNotify(lParam));
 			return TRUE;
 		case IDC_DEBUG_BOTTOMTABS:
 			bottomTabs->HandleNotify(lParam);
@@ -747,6 +754,7 @@ void CDisasm::NotifyMapLoaded() {
 	} else {
 		deferredSymbolFill_ = true;
 	}
+	if (userSymbolList_) userSymbolList_->Refresh();
 	CtrlDisAsmView *ptr = DisAsmView();
 	ptr->clearFunctions();
 	ptr->redraw();

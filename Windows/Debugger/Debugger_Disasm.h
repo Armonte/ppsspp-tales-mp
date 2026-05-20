@@ -26,6 +26,7 @@ private:
 	CtrlStackTraceView* stackTraceView;
 	CtrlModuleList* moduleList;
 	CtrlWatchList *watchList_;
+	CtrlUserSymbolList *userSymbolList_;
 	TabControl* leftTabs;
 	TabControl* bottomTabs;
 	BreakpointManager *breakpoints_;

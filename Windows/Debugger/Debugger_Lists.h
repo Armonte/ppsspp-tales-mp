@@ -108,3 +108,33 @@ private:
 	std::vector<WatchInfo> watches_;
 	DebugInterface *cpu_;
 };
+
+// Shows only labels marked as user-defined (via SymbolMap::MarkLabelAsUser).
+// Sister tab to the disasm-view right-click "Add Symbol Here..." flow —
+// gives a single pane to review, jump to, rename, and delete custom labels
+// you've added during a session. Import/export and Clear-All also live here.
+class CtrlUserSymbolList : public GenericListControl {
+public:
+	CtrlUserSymbolList(HWND hwnd, DebugInterface *cpu);
+	void Refresh();
+	void OnDoubleClick(int itemIndex, int column) override;
+	void OnRightClick(int itemIndex, int column, const POINT &point) override;
+
+protected:
+	bool WindowMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT &returnValue) override;
+	void GetColumnText(wchar_t *dest, size_t destSize, int row, int col) override;
+	int GetRowCount() override { return (int)symbols_.size(); }
+
+private:
+	void JumpTo(int pos);
+	void Edit(int pos);
+	void Delete(int pos);
+	void CopyAddress(int pos);
+	void AddNew();
+	void Import();
+	void Export();
+	void ClearAll();
+
+	std::vector<SymbolEntry> symbols_;
+	DebugInterface *cpu_;
+};
