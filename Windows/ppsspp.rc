@@ -783,6 +783,10 @@ BEGIN
         MENUITEM "Delete",                     ID_DISASM_DELETEBREAKPOINT
         MENUITEM SEPARATOR
         MENUITEM "Add New",                    ID_DISASM_ADDNEWBREAKPOINT
+        MENUITEM SEPARATOR
+        MENUITEM "Import...",                  ID_DISASM_BP_IMPORT
+        MENUITEM "Export...",                  ID_DISASM_BP_EXPORT
+        MENUITEM "Clear All",                  ID_DISASM_BP_CLEAR
     END
     POPUP "threadlist"
     BEGIN
@@ -792,6 +796,10 @@ BEGIN
     POPUP "newbreakpoint"
     BEGIN
         MENUITEM "Add New",                    ID_DISASM_ADDNEWBREAKPOINT
+        MENUITEM SEPARATOR
+        MENUITEM "Import...",                  ID_DISASM_BP_IMPORT
+        MENUITEM "Export...",                  ID_DISASM_BP_EXPORT
+        MENUITEM "Clear All",                  ID_DISASM_BP_CLEAR
     END
     POPUP "displaylistview"
     BEGIN

@@ -53,6 +53,10 @@ private:
 	int getBreakpointIndex(int itemIndex, bool& isMemory);
 	void showBreakpointMenu(int itemIndex, const POINT &pt);
 	void toggleEnabled(int itemIndex);
+
+	void ImportBreakpoints();
+	void ExportBreakpoints();
+	void ClearAllBreakpoints();
 };
 
 class CtrlStackTraceView: public GenericListControl

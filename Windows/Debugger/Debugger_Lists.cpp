@@ -601,11 +601,14 @@ void CtrlBreakpointList::showBreakpointMenu(int itemIndex, const POINT &pt)
 		switch (TriggerContextMenu(ContextMenuID::NEWBREAKPOINT, GetHandle(), ContextPoint::FromClient(pt)))
 		{
 		case ID_DISASM_ADDNEWBREAKPOINT:
-			{		
+			{
 				BreakpointWindow bpw(GetHandle(),cpu);
 				if (bpw.exec()) bpw.addBreakpoint();
 			}
 			break;
+		case ID_DISASM_BP_IMPORT: ImportBreakpoints(); break;
+		case ID_DISASM_BP_EXPORT: ExportBreakpoints(); break;
+		case ID_DISASM_BP_CLEAR:  ClearAllBreakpoints(); break;
 		}
 	} else {
 		MemCheck mcPrev;
@@ -644,8 +647,211 @@ void CtrlBreakpointList::showBreakpointMenu(int itemIndex, const POINT &pt)
 		case ID_DISASM_DELETEBREAKPOINT:
 			removeBreakpoint(itemIndex);
 			break;
+		case ID_DISASM_BP_IMPORT: ImportBreakpoints(); break;
+		case ID_DISASM_BP_EXPORT: ExportBreakpoints(); break;
+		case ID_DISASM_BP_CLEAR:  ClearAllBreakpoints(); break;
 		}
 	}
+}
+
+// Import/Export breakpoints. Format is plain text, tab-separated.
+//   EX  addr  enabled  log  cond_expr  log_fmt        — exec breakpoint
+//   MEM start end  cond  enabled  log  cond_expr  log_fmt — memory check
+// `cond` for MEM is one of R, W, RW, RWC. `cond_expr` and `log_fmt` may be
+// empty (consecutive tabs). Lines starting with # are comments; blank lines
+// ignored. Tabs and newlines in cond_expr/log_fmt are not supported and
+// such entries are silently skipped on export — a reasonable trade since
+// the BreakpointWindow UI doesn't make them easy to enter.
+
+static std::string EscapeForBPField(const std::string &s) {
+	for (char c : s) {
+		if (c == '\t' || c == '\n' || c == '\r') return std::string();
+	}
+	return s;
+}
+
+static std::vector<std::string> SplitTabs(const std::string &line, int expected) {
+	std::vector<std::string> out;
+	size_t prev = 0;
+	for (size_t i = 0; i <= line.size(); ++i) {
+		if (i == line.size() || line[i] == '\t') {
+			out.emplace_back(line.substr(prev, i - prev));
+			prev = i + 1;
+		}
+	}
+	while ((int)out.size() < expected) out.emplace_back();
+	return out;
+}
+
+void CtrlBreakpointList::ImportBreakpoints() {
+	std::string path;
+	if (!W32Util::BrowseForFileName(true, GetHandle(), L"Import breakpoints",
+			nullptr, nullptr,
+			L"Breakpoint files (*.bp)\0*.bp\0Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0\0",
+			L"bp", path)) {
+		return;
+	}
+	int mode = MessageBox(GetHandle(),
+		L"Replace existing breakpoints?\n\n"
+		L"Yes = clear current breakpoints (exec + memory), then load.\n"
+		L"No  = merge — keep existing, add new from file.\n"
+		L"Cancel = abort.",
+		L"Import breakpoints", MB_YESNOCANCEL | MB_ICONQUESTION);
+	if (mode == IDCANCEL) return;
+
+	std::ifstream in(path);
+	if (!in) {
+		MessageBox(GetHandle(), L"Failed to open file.", L"Import breakpoints",
+			MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	if (mode == IDYES) {
+		g_breakpoints.ClearAllBreakPoints();
+		g_breakpoints.ClearAllMemChecks();
+	}
+
+	int loadedEx = 0, loadedMem = 0, rejected = 0;
+	std::string line;
+	while (std::getline(in, line)) {
+		// Trim trailing \r (Windows line endings on Linux read).
+		while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+		if (line.empty() || line[0] == '#') continue;
+
+		// First field is type.
+		size_t tab = line.find('\t');
+		if (tab == std::string::npos) { rejected++; continue; }
+		std::string type = line.substr(0, tab);
+
+		if (type == "EX") {
+			auto f = SplitTabs(line, 6);
+			// f[0]=EX, f[1]=addr, f[2]=enabled, f[3]=log, f[4]=cond, f[5]=fmt
+			u32 addr = 0;
+			try { addr = (u32)std::stoul(f[1], nullptr, 0); }
+			catch (...) { rejected++; continue; }
+			bool enabled = (!f[2].empty() && f[2] != "0");
+			bool log     = (!f[3].empty() && f[3] != "0");
+			g_breakpoints.AddBreakPoint(addr, false);
+			BreakAction action = BREAK_ACTION_IGNORE;
+			if (enabled) action |= BREAK_ACTION_PAUSE;
+			if (log)     action |= BREAK_ACTION_LOG;
+			g_breakpoints.ChangeBreakPoint(addr, action);
+			if (!f[4].empty()) {
+				BreakPointCond cond;
+				cond.debug = cpu;
+				cond.expressionString = f[4];
+				if (initExpression(cpu, f[4].c_str(), cond.expression)) {
+					g_breakpoints.ChangeBreakPointAddCond(addr, cond);
+				}
+			}
+			if (!f[5].empty()) g_breakpoints.ChangeBreakPointLogFormat(addr, f[5]);
+			loadedEx++;
+		} else if (type == "MEM") {
+			auto f = SplitTabs(line, 8);
+			// f[0]=MEM, f[1]=start, f[2]=end, f[3]=cond(R/W/RW/RWC),
+			// f[4]=enabled, f[5]=log, f[6]=condexpr, f[7]=fmt
+			u32 start = 0, end = 0;
+			try {
+				start = (u32)std::stoul(f[1], nullptr, 0);
+				end   = (u32)std::stoul(f[2], nullptr, 0);
+			} catch (...) { rejected++; continue; }
+			MemCheckCondition cond = MEMCHECK_READ;
+			if (f[3] == "R")        cond = MEMCHECK_READ;
+			else if (f[3] == "W")   cond = MEMCHECK_WRITE;
+			else if (f[3] == "RW")  cond = MEMCHECK_READWRITE;
+			else if (f[3] == "RWC") cond = (MemCheckCondition)(MEMCHECK_READWRITE | MEMCHECK_WRITE_ONCHANGE);
+			else { rejected++; continue; }
+			bool enabled = (!f[4].empty() && f[4] != "0");
+			bool log     = (!f[5].empty() && f[5] != "0");
+			BreakAction action = BREAK_ACTION_IGNORE;
+			if (enabled) action |= BREAK_ACTION_PAUSE;
+			if (log)     action |= BREAK_ACTION_LOG;
+			g_breakpoints.AddMemCheck(start, end, cond, action);
+			if (!f[6].empty()) {
+				BreakPointCond bpc;
+				bpc.debug = cpu;
+				bpc.expressionString = f[6];
+				if (initExpression(cpu, f[6].c_str(), bpc.expression)) {
+					g_breakpoints.ChangeMemCheckAddCond(start, end, bpc);
+				}
+			}
+			if (!f[7].empty()) g_breakpoints.ChangeMemCheckLogFormat(start, end, f[7]);
+			loadedMem++;
+		} else {
+			rejected++;
+		}
+	}
+
+	reloadBreakpoints();
+	wchar_t msg[256];
+	swprintf_s(msg, L"Loaded %d exec + %d memory breakpoint(s).%s",
+		loadedEx, loadedMem,
+		rejected ? (std::wstring(L"\nRejected ") + std::to_wstring(rejected) + L" invalid line(s).").c_str() : L"");
+	MessageBox(GetHandle(), msg, L"Import breakpoints", MB_OK | MB_ICONINFORMATION);
+}
+
+void CtrlBreakpointList::ExportBreakpoints() {
+	auto bps  = g_breakpoints.GetBreakpoints();
+	auto mcs  = g_breakpoints.GetMemChecks();
+	if (bps.empty() && mcs.empty()) {
+		MessageBox(GetHandle(), L"No breakpoints to export.", L"Export breakpoints",
+			MB_OK | MB_ICONINFORMATION);
+		return;
+	}
+	std::string path;
+	if (!W32Util::BrowseForFileName(false, GetHandle(), L"Export breakpoints",
+			nullptr, L"breakpoints.bp",
+			L"Breakpoint files (*.bp)\0*.bp\0All files (*.*)\0*.*\0\0",
+			L"bp", path)) {
+		return;
+	}
+	std::ofstream out(path, std::ios::trunc);
+	if (!out) {
+		MessageBox(GetHandle(), L"Failed to open file for write.", L"Export breakpoints",
+			MB_OK | MB_ICONERROR);
+		return;
+	}
+	out << "# PPSSPP breakpoints. Tab-separated. # = comment.\n";
+	out << "# EX  <addr>  <enabled:0|1>  <log:0|1>  <cond_expr>  <log_fmt>\n";
+	out << "# MEM <start> <end>  <cond:R|W|RW|RWC>  <enabled:0|1>  <log:0|1>  <cond_expr>  <log_fmt>\n";
+	for (const auto &bp : bps) {
+		if (bp.temporary) continue;
+		char addrBuf[16];
+		snprintf(addrBuf, sizeof(addrBuf), "0x%08X", bp.addr);
+		bool enabled = (bp.result & BREAK_ACTION_PAUSE) != 0;
+		bool log     = (bp.result & BREAK_ACTION_LOG) != 0;
+		std::string cond = bp.hasCond ? EscapeForBPField(bp.cond.expressionString) : std::string();
+		std::string fmt  = EscapeForBPField(bp.logFormat);
+		out << "EX\t" << addrBuf << '\t' << (enabled ? 1 : 0) << '\t'
+		    << (log ? 1 : 0) << '\t' << cond << '\t' << fmt << '\n';
+	}
+	for (const auto &mc : mcs) {
+		char startBuf[16], endBuf[16];
+		snprintf(startBuf, sizeof(startBuf), "0x%08X", mc.start);
+		snprintf(endBuf,   sizeof(endBuf),   "0x%08X", mc.end);
+		bool enabled = (mc.result & BREAK_ACTION_PAUSE) != 0;
+		bool log     = (mc.result & BREAK_ACTION_LOG) != 0;
+		const char *condStr =
+			(mc.cond & MEMCHECK_WRITE_ONCHANGE) ? "RWC" :
+			(mc.cond == MEMCHECK_READWRITE) ? "RW" :
+			(mc.cond == MEMCHECK_WRITE) ? "W" : "R";
+		std::string cond = mc.hasCondition ? EscapeForBPField(mc.condition.expressionString) : std::string();
+		std::string fmt  = EscapeForBPField(mc.logFormat);
+		out << "MEM\t" << startBuf << '\t' << endBuf << '\t' << condStr << '\t'
+		    << (enabled ? 1 : 0) << '\t' << (log ? 1 : 0) << '\t'
+		    << cond << '\t' << fmt << '\n';
+	}
+}
+
+void CtrlBreakpointList::ClearAllBreakpoints() {
+	if (MessageBox(GetHandle(),
+			L"Remove all exec + memory breakpoints?", L"Clear All",
+			MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
+		return;
+	}
+	g_breakpoints.ClearAllBreakPoints();
+	g_breakpoints.ClearAllMemChecks();
+	reloadBreakpoints();
 }
 
 //

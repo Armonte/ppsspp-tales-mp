@@ -359,6 +359,9 @@
 #define ID_DISASM_USERSYM_IMPORT         40247
 #define ID_DISASM_USERSYM_EXPORT         40248
 #define ID_DISASM_USERSYM_CLEAR          40249
+#define ID_DISASM_BP_IMPORT              40250
+#define ID_DISASM_BP_EXPORT              40251
+#define ID_DISASM_BP_CLEAR               40252
 
 // Dynamic menus
 #define ID_FILE_SAVESTATE_SLOT_BASE      45000
@@ -374,7 +377,7 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        258
-#define _APS_NEXT_COMMAND_VALUE         40250
+#define _APS_NEXT_COMMAND_VALUE         40253
 #define _APS_NEXT_CONTROL_VALUE         1202
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
