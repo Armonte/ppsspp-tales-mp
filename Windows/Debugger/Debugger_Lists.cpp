@@ -9,13 +9,18 @@
 #include "Windows/W32Util/ContextMenu.h"
 #include "Windows/MainWindow.h"
 #include "Windows/InputBox.h"
+#include "Windows/W32Util/ShellUtil.h"
 #include "Windows/resource.h"
 #include "Windows/main.h"
 #include "Common/Data/Encoding/Utf8.h"
+#include "Common/File/FileUtil.h"
 #include "Core/Debugger/SymbolMap.h"
 #include "Core/HLE/sceKernelThread.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <fstream>
+#include <sstream>
 
 enum { TL_NAME, TL_PROGRAMCOUNTER, TL_ENTRYPOINT, TL_PRIORITY, TL_STATE, TL_WAITTYPE, TL_COLUMNCOUNT };
 enum { BPL_ENABLED, BPL_TYPE, BPL_OFFSET, BPL_SIZELABEL, BPL_OPCODE, BPL_CONDITION, BPL_HITS, BPL_COLUMNCOUNT };
@@ -1184,17 +1189,112 @@ void CtrlUserSymbolList::AddNew() {
 	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
 }
 
+// File format: one symbol per line as `0xADDR NAME`. Lines starting with
+// `#`, `;`, or `//` are comments (skipped); blank lines are also ignored.
+// Names are validated against IsValidUserSymbolName — invalid lines are
+// counted in the rejected total and reported in the summary.
 void CtrlUserSymbolList::Import() {
-	// Implemented in feature D — leave stub here so the menu item compiles
-	// and is visible. Wiring the file dialog + parse lands with that task.
-	MessageBox(GetHandle(), L"Import: implemented in a follow-up commit.",
-		L"Import .sym", MB_OK | MB_ICONINFORMATION);
+	std::string path;
+	if (!W32Util::BrowseForFileName(true, GetHandle(), L"Import user symbols",
+			nullptr, nullptr,
+			L"Symbol files (*.sym)\0*.sym\0Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0\0",
+			L"sym", path)) {
+		return;
+	}
+
+	// Ask: Replace existing or Merge? IDYES=replace, IDNO=merge, IDCANCEL=abort.
+	int mode = MessageBox(GetHandle(),
+		L"Replace existing user symbols?\n\n"
+		L"Yes = clear current user symbols, then load.\n"
+		L"No  = merge into current user symbols (new entries overwrite by address).\n"
+		L"Cancel = abort.",
+		L"Import .sym", MB_YESNOCANCEL | MB_ICONQUESTION);
+	if (mode == IDCANCEL) return;
+
+	std::ifstream in(path);
+	if (!in) {
+		MessageBox(GetHandle(), L"Failed to open file.", L"Import .sym", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	if (mode == IDYES) {
+		g_symbolMap->ClearUserLabels();
+	}
+
+	int loaded = 0;
+	int rejected = 0;
+	std::string line;
+	while (std::getline(in, line)) {
+		// Strip leading whitespace + comment.
+		size_t s = 0;
+		while (s < line.size() && (line[s] == ' ' || line[s] == '\t' || line[s] == '\r')) s++;
+		if (s >= line.size()) continue;
+		if (line[s] == '#' || line[s] == ';') continue;
+		if (s + 1 < line.size() && line[s] == '/' && line[s+1] == '/') continue;
+
+		// Parse address.
+		u32 addr = 0;
+		size_t consumed = 0;
+		try {
+			addr = (u32)std::stoul(line.substr(s), &consumed, 0);
+		} catch (...) {
+			rejected++;
+			continue;
+		}
+		// Skip whitespace before name.
+		size_t n = s + consumed;
+		while (n < line.size() && (line[n] == ' ' || line[n] == '\t')) n++;
+		// Trim trailing whitespace from name.
+		size_t end = line.find_last_not_of(" \t\r\n");
+		if (end == std::string::npos || end < n) {
+			rejected++;
+			continue;
+		}
+		std::string name = line.substr(n, end - n + 1);
+		if (!IsValidUserSymbolName(name)) {
+			rejected++;
+			continue;
+		}
+		g_symbolMap->AddLabel(name.c_str(), addr);
+		g_symbolMap->SetLabelName(name.c_str(), addr);
+		g_symbolMap->MarkLabelAsUser(addr);
+		loaded++;
+	}
+
+	Refresh();
+	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
+
+	wchar_t msg[256];
+	swprintf_s(msg, L"Loaded %d symbol(s).%s",
+		loaded, rejected ? (std::wstring(L"\nRejected ") + std::to_wstring(rejected) + L" invalid line(s).").c_str() : L"");
+	MessageBox(GetHandle(), msg, L"Import .sym", MB_OK | MB_ICONINFORMATION);
 }
 
 void CtrlUserSymbolList::Export() {
-	// Implemented in feature D.
-	MessageBox(GetHandle(), L"Export: implemented in a follow-up commit.",
-		L"Export .sym", MB_OK | MB_ICONINFORMATION);
+	if (symbols_.empty()) {
+		MessageBox(GetHandle(), L"No user symbols to export.", L"Export .sym",
+			MB_OK | MB_ICONINFORMATION);
+		return;
+	}
+	std::string path;
+	if (!W32Util::BrowseForFileName(false, GetHandle(), L"Export user symbols",
+			nullptr, L"usersymbols.sym",
+			L"Symbol files (*.sym)\0*.sym\0All files (*.*)\0*.*\0\0",
+			L"sym", path)) {
+		return;
+	}
+	std::ofstream out(path, std::ios::trunc);
+	if (!out) {
+		MessageBox(GetHandle(), L"Failed to open file for write.", L"Export .sym",
+			MB_OK | MB_ICONERROR);
+		return;
+	}
+	out << "# PPSSPP user symbols. One symbol per line: <0xADDR> <NAME>\n";
+	for (const auto &s : symbols_) {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "0x%08X ", s.address);
+		out << buf << s.name << '\n';
+	}
 }
 
 void CtrlUserSymbolList::ClearAll() {
