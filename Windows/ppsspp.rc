@@ -763,6 +763,9 @@ BEGIN
         MENUITEM "Add Function Here",          ID_DISASM_ADDFUNCTION
         MENUITEM "NOP instruction(s)",         ID_DISASM_NOPINSTRUCTION
         MENUITEM "Edit symbols...",            ID_DISASM_EDITSYMBOLS
+        MENUITEM SEPARATOR
+        MENUITEM "Add Symbol Here...",         ID_DISASM_ADDSYMBOL
+        MENUITEM "Remove Symbol",              ID_DISASM_REMOVESYMBOL
     END
     POPUP "reglist"
     BEGIN

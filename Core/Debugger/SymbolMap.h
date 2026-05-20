@@ -19,6 +19,7 @@
 
 #include <vector>
 #include <map>
+#include <set>
 #include <string>
 #include <mutex>
 
@@ -109,6 +110,16 @@ public:
 	std::string GetLabelString(u32 address);
 	void SetLabelName(const char* name, u32 address);
 	bool GetLabelValue(const char* name, u32& dest);
+	bool RemoveLabel(u32 address);
+
+	// User-flag tracking — labels the user explicitly added via the debugger
+	// (versus auto-loaded from a .sym file or analysis). Used by the "User
+	// Symbols" tab + import/export to round-trip just what the user owns.
+	void MarkLabelAsUser(u32 address);
+	void UnmarkLabelAsUser(u32 address);
+	bool IsUserLabel(u32 address) const;
+	void GetUserLabels(std::vector<SymbolEntry> &dest) const;
+	void ClearUserLabels();
 
 	void AddData(u32 address, u32 size, DataType type, int moduleIndex = -1);
 	u32 GetDataStart(u32 address);
@@ -173,6 +184,11 @@ private:
 
 	mutable std::recursive_mutex lock_;
 	bool sawUnknownModule = false;
+
+	// Set of absolute addresses for labels the user explicitly added.
+	// We store absolute (not module-relative) because users add via the
+	// debugger UI which always works in absolute addresses.
+	std::set<u32> userLabelAddrs_;
 };
 
 extern SymbolMap *g_symbolMap;

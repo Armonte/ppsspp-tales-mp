@@ -1,6 +1,9 @@
+#include <cctype>
 #include <cstdarg>
 #include <cstring>
 #include <memory>
+#include <set>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -63,6 +66,53 @@ bool MipsAssembleOpcode(std::string_view line, DebugInterface *cpu, u32 address,
 
 	if (g_symbolMap) {
 		g_symbolMap->GetLabels(args.labels);
+	}
+
+	// Auto-resolve `pos_0xXXXXXXXX` tokens as literal addresses. The disasm
+	// "Copy as CWcheat" / branch renderer emits `pos_0xAABBCCDD` for targets
+	// that don't have a real label; this lets the assembler accept that text
+	// without choking on a missing symbol. If a real label by that same name
+	// already exists (added by the user), it wins — we only inject for names
+	// not already defined.
+	{
+		std::set<std::string> existing;
+		for (const auto &l : args.labels)
+			existing.insert(l.name.string());
+
+		const std::string s(line);
+		size_t scan = 0;
+		while (scan < s.size()) {
+			size_t hit = s.find("pos_0x", scan);
+			if (hit == std::string::npos)
+				break;
+			bool at_boundary = (hit == 0) ||
+				!(isalnum((unsigned char)s[hit - 1]) || s[hit - 1] == '_');
+			size_t hex_start = hit + 6;  // strlen("pos_0x")
+			size_t hex_end = hex_start;
+			while (hex_end < s.size() && isxdigit((unsigned char)s[hex_end]))
+				++hex_end;
+			if (at_boundary && hex_end > hex_start) {
+				std::string name = s.substr(hit, hex_end - hit);
+				if (existing.find(name) == existing.end()) {
+					uint64_t value = 0;
+					for (size_t i = hex_start; i < hex_end; ++i) {
+						value <<= 4;
+						char c = s[i];
+						if (c >= '0' && c <= '9') value |= (c - '0');
+						else if (c >= 'a' && c <= 'f') value |= (c - 'a' + 10);
+						else value |= (c - 'A' + 10);
+					}
+					LabelDefinition def;
+					def.name = Identifier(name);
+					def.value = (int64_t)value;
+					args.labels.push_back(def);
+					existing.insert(name);
+				}
+				scan = hex_end;
+			} else {
+				scan = hit + 1;
+			}
+		}
 	}
 
 	error->clear();

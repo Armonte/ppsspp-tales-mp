@@ -737,7 +737,11 @@ void CtrlDisAsmView::onKeyDown(WPARAM wParam, LPARAM lParam)
 			disassembleToFile();
 			break;
 		case 'a':
-			assembleOpcode(curAddress,"");
+			{
+				char asm_text[80] = {0};
+				getOpcodeText(curAddress, asm_text, sizeof(asm_text));
+				assembleOpcode(curAddress, asm_text);
+			}
 			break;
 		case 'g':
 			{
@@ -1024,7 +1028,11 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 			redraw();
 			break;
 		case ID_DISASM_ASSEMBLE:
-			assembleOpcode(curAddress,"");
+			{
+				char asm_text[80] = {0};
+				getOpcodeText(curAddress, asm_text, sizeof(asm_text));
+				assembleOpcode(curAddress, asm_text);
+			}
 			break;
 		case ID_DISASM_ASSEMBLEFROMCLIPBOARD:
 			assembleFromClipboard(selectRangeStart);
@@ -1056,6 +1064,54 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 					SendMessage(GetParent(wnd), WM_DEB_MAPLOADED, 0, 0);
 					redraw();
 				}
+			}
+			break;
+		case ID_DISASM_ADDSYMBOL:
+			{
+				// Prompt for a name and add it as a user-defined label at curAddress.
+				// Name rules (so the assembler can disambiguate raw-address syntax):
+				//   - alphanumeric + underscore only
+				//   - can't start with a digit
+				//   - can't start with "0x" or "pos_0x" (reserved by raw-addr parse)
+				char defaultName[64];
+				snprintf(defaultName, sizeof(defaultName), "label_%08X", curAddress);
+				std::string newName;
+				if (!InputBox_GetString(MainWindow::GetHInstance(), MainWindow::GetHWND(),
+						L"New symbol name", defaultName, newName)) {
+					break;
+				}
+				if (newName.empty()) {
+					MessageBox(wnd, L"Symbol name is empty.", L"Add Symbol", MB_OK | MB_ICONWARNING);
+					break;
+				}
+				bool bad = false;
+				if (isdigit((unsigned char)newName[0])) bad = true;
+				if (newName.size() >= 2 && newName[0] == '0' && (newName[1] == 'x' || newName[1] == 'X')) bad = true;
+				if (newName.size() >= 6 && newName.compare(0, 6, "pos_0x") == 0) bad = true;
+				for (char c : newName) {
+					if (!isalnum((unsigned char)c) && c != '_') { bad = true; break; }
+				}
+				if (bad) {
+					MessageBox(wnd,
+						L"Invalid symbol name. Use alphanumerics + underscore, can't start with a digit, can't begin with 0x or pos_0x.",
+						L"Add Symbol", MB_OK | MB_ICONWARNING);
+					break;
+				}
+				g_symbolMap->AddLabel(newName.c_str(), curAddress);
+				g_symbolMap->SetLabelName(newName.c_str(), curAddress);  // ensure rename if existed
+				g_symbolMap->MarkLabelAsUser(curAddress);
+				SendMessage(GetParent(wnd), WM_DEB_MAPLOADED, 0, 0);
+				redraw();
+			}
+			break;
+		case ID_DISASM_REMOVESYMBOL:
+			{
+				if (!g_symbolMap->RemoveLabel(curAddress)) {
+					MessageBox(wnd, L"No symbol at this address.", L"Remove Symbol", MB_OK | MB_ICONWARNING);
+					break;
+				}
+				SendMessage(GetParent(wnd), WM_DEB_MAPLOADED, 0, 0);
+				redraw();
 			}
 			break;
 		case ID_DISASM_SETPCTOHERE:
