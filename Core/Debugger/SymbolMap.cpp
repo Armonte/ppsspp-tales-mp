@@ -65,6 +65,10 @@ void SymbolMap::Clear() {
 	activeData.clear();
 	activeModuleEnds.clear();
 	modules.clear();
+	// User-flag set lives parallel to `labels`; clearing one without the other
+	// leaves dangling entries that GetUserLabels would silently skip but that
+	// IsUserLabel would still report as true. Clear both together.
+	userLabelAddrs_.clear();
 	activeNeedUpdate_ = false;
 }
 
