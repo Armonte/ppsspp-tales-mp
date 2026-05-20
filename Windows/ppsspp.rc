@@ -187,6 +187,7 @@ BEGIN
     CONTROL         "",IDC_STACKFRAMES,"SysListView32",LVS_ALIGNLEFT | LVS_SHOWSELALWAYS | LVS_REPORT | WS_BORDER,1,338,513,93
     CONTROL         "",IDC_MODULELIST,"SysListView32",LVS_ALIGNLEFT | LVS_SHOWSELALWAYS | LVS_REPORT | WS_BORDER,1,338,513,93
     CONTROL         "",IDC_WATCHLIST,"SysListView32",LVS_ALIGNLEFT | LVS_SHOWSELALWAYS | LVS_REPORT | WS_BORDER,1,338,513,93
+    CONTROL         "",IDC_USERSYMBOLLIST,"SysListView32",LVS_ALIGNLEFT | LVS_SHOWSELALWAYS | LVS_REPORT | WS_BORDER,1,338,513,93
     CONTROL         "",IDC_DEBUG_BOTTOMTABS,"SysTabControl32",TCS_TABS | TCS_FOCUSNEVER,1,338,513,93
 END
 
@@ -855,6 +856,25 @@ BEGIN
     POPUP "cpuaddwatch"
     BEGIN
         MENUITEM "Add New",                    ID_DISASM_ADDNEWBREAKPOINT
+    END
+    POPUP "usersymlist"
+    BEGIN
+        MENUITEM "Jump to Address",            ID_DISASM_USERSYM_JUMP
+        MENUITEM "Edit (Rename)...",           ID_DISASM_USERSYM_EDIT
+        MENUITEM "Delete",                     ID_DISASM_USERSYM_DELETE
+        MENUITEM "Copy Address",               ID_DISASM_USERSYM_COPYADDR
+        MENUITEM SEPARATOR
+        MENUITEM "Add...",                     ID_DISASM_USERSYM_ADD
+        MENUITEM "Import .sym...",             ID_DISASM_USERSYM_IMPORT
+        MENUITEM "Export .sym...",             ID_DISASM_USERSYM_EXPORT
+        MENUITEM "Clear All",                  ID_DISASM_USERSYM_CLEAR
+    END
+    POPUP "usersymadd"
+    BEGIN
+        MENUITEM "Add...",                     ID_DISASM_USERSYM_ADD
+        MENUITEM "Import .sym...",             ID_DISASM_USERSYM_IMPORT
+        MENUITEM "Export .sym...",             ID_DISASM_USERSYM_EXPORT
+        MENUITEM "Clear All",                  ID_DISASM_USERSYM_CLEAR
     END
 END
 

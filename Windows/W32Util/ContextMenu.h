@@ -34,6 +34,8 @@ enum class ContextMenuID {
 	GEDBG_TABS = 10,
 	CPUWATCHLIST = 11,
 	CPUADDWATCH = 12,
+	USERSYMLIST = 13,
+	USERSYMADD = 14,
 };
 
 struct ContextPoint {

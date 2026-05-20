@@ -8,16 +8,21 @@
 #include "Windows/Debugger/WatchItemWindow.h"
 #include "Windows/W32Util/ContextMenu.h"
 #include "Windows/MainWindow.h"
+#include "Windows/InputBox.h"
 #include "Windows/resource.h"
 #include "Windows/main.h"
 #include "Common/Data/Encoding/Utf8.h"
+#include "Core/Debugger/SymbolMap.h"
 #include "Core/HLE/sceKernelThread.h"
+#include <algorithm>
+#include <cctype>
 
 enum { TL_NAME, TL_PROGRAMCOUNTER, TL_ENTRYPOINT, TL_PRIORITY, TL_STATE, TL_WAITTYPE, TL_COLUMNCOUNT };
 enum { BPL_ENABLED, BPL_TYPE, BPL_OFFSET, BPL_SIZELABEL, BPL_OPCODE, BPL_CONDITION, BPL_HITS, BPL_COLUMNCOUNT };
 enum { SF_ENTRY, SF_ENTRYNAME, SF_CURPC, SF_CUROPCODE, SF_CURSP, SF_FRAMESIZE, SF_COLUMNCOUNT };
 enum { ML_NAME, ML_ADDRESS, ML_SIZE, ML_ACTIVE, ML_COLUMNCOUNT };
 enum { WL_NAME, WL_EXPRESSION, WL_VALUE, WL_COLUMNCOUNT };
+enum { USL_ADDRESS, USL_NAME, USL_COLUMNCOUNT };
 
 GenericListViewColumn threadColumns[TL_COLUMNCOUNT] = {
 	{ L"Name",			0.20f },
@@ -78,6 +83,15 @@ GenericListViewColumn watchListColumns[WL_COLUMNCOUNT] = {
 
 GenericListViewDef watchListDef = {
 	watchListColumns, ARRAY_SIZE(watchListColumns), nullptr, false,
+};
+
+GenericListViewColumn userSymListColumns[USL_COLUMNCOUNT] = {
+	{ L"Address",       0.30f },
+	{ L"Name",          0.70f },
+};
+
+GenericListViewDef userSymListDef = {
+	userSymListColumns, ARRAY_SIZE(userSymListColumns), nullptr, false,
 };
 
 //
@@ -998,4 +1012,198 @@ void CtrlWatchList::DeleteWatch(int pos) {
 
 bool CtrlWatchList::HasWatchChanged(int pos) {
 	return watches_[pos].lastValue != watches_[pos].currentValue;
+}
+
+//
+// CtrlUserSymbolList
+//
+
+// Symbol-name validity check shared with the disasm-view "Add Symbol Here"
+// flow (CtrlDisAsmView.cpp). Keep these two in sync — the rules exist so
+// the assembler can disambiguate `0x...` and `pos_0x...` raw-address tokens
+// from real identifiers without ambiguity.
+static bool IsValidUserSymbolName(const std::string &name) {
+	if (name.empty()) return false;
+	if (isdigit((unsigned char)name[0])) return false;
+	if (name.size() >= 2 && name[0] == '0' && (name[1] == 'x' || name[1] == 'X')) return false;
+	if (name.size() >= 6 && name.compare(0, 6, "pos_0x") == 0) return false;
+	for (char c : name) {
+		if (!isalnum((unsigned char)c) && c != '_') return false;
+	}
+	return true;
+}
+
+CtrlUserSymbolList::CtrlUserSymbolList(HWND hwnd, DebugInterface *cpu)
+	: GenericListControl(hwnd, userSymListDef), cpu_(cpu) {
+	Refresh();
+}
+
+void CtrlUserSymbolList::Refresh() {
+	symbols_.clear();
+	if (g_symbolMap) {
+		g_symbolMap->GetUserLabels(symbols_);
+		std::sort(symbols_.begin(), symbols_.end(),
+			[](const SymbolEntry &a, const SymbolEntry &b) { return a.address < b.address; });
+	}
+	Update();
+}
+
+bool CtrlUserSymbolList::WindowMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT &returnValue) {
+	switch (msg) {
+	case WM_KEYDOWN:
+		switch (wParam) {
+		case VK_TAB:
+			returnValue = 0;
+			SendMessage(GetParent(GetHandle()), WM_DEB_TABPRESSED, 0, 0);
+			return true;
+		case VK_RETURN:
+			returnValue = 0;
+			JumpTo(GetSelectedIndex());
+			return true;
+		case VK_DELETE:
+			returnValue = 0;
+			Delete(GetSelectedIndex());
+			return true;
+		}
+		break;
+	case WM_GETDLGCODE:
+		if (lParam && ((MSG *)lParam)->message == WM_KEYDOWN) {
+			if (wParam == VK_TAB || wParam == VK_RETURN || wParam == VK_DELETE) {
+				returnValue = DLGC_WANTMESSAGE;
+				return true;
+			}
+		}
+		break;
+	}
+	return false;
+}
+
+void CtrlUserSymbolList::GetColumnText(wchar_t *dest, size_t destSize, int row, int col) {
+	if (row < 0 || row >= (int)symbols_.size()) {
+		dest[0] = 0;
+		return;
+	}
+	const auto &s = symbols_[row];
+	switch (col) {
+	case USL_ADDRESS:
+		swprintf_s(dest, destSize, L"0x%08X", s.address);
+		break;
+	case USL_NAME:
+		wcsncpy(dest, ConvertUTF8ToWString(s.name).c_str(), destSize - 1);
+		dest[destSize - 1] = 0;
+		break;
+	}
+}
+
+void CtrlUserSymbolList::OnDoubleClick(int itemIndex, int column) {
+	JumpTo(itemIndex);
+}
+
+void CtrlUserSymbolList::OnRightClick(int itemIndex, int column, const POINT &pt) {
+	ContextMenuID which = (itemIndex == -1) ? ContextMenuID::USERSYMADD : ContextMenuID::USERSYMLIST;
+	switch (TriggerContextMenu(which, GetHandle(), ContextPoint::FromClient(pt))) {
+	case ID_DISASM_USERSYM_JUMP:     JumpTo(itemIndex); break;
+	case ID_DISASM_USERSYM_EDIT:     Edit(itemIndex); break;
+	case ID_DISASM_USERSYM_DELETE:   Delete(itemIndex); break;
+	case ID_DISASM_USERSYM_COPYADDR: CopyAddress(itemIndex); break;
+	case ID_DISASM_USERSYM_ADD:      AddNew(); break;
+	case ID_DISASM_USERSYM_IMPORT:   Import(); break;
+	case ID_DISASM_USERSYM_EXPORT:   Export(); break;
+	case ID_DISASM_USERSYM_CLEAR:    ClearAll(); break;
+	}
+}
+
+void CtrlUserSymbolList::JumpTo(int pos) {
+	if (pos < 0 || pos >= (int)symbols_.size()) return;
+	SendMessage(GetParent(GetHandle()), WM_DEB_GOTOWPARAM, symbols_[pos].address, 0);
+}
+
+void CtrlUserSymbolList::Edit(int pos) {
+	if (pos < 0 || pos >= (int)symbols_.size()) return;
+	const u32 addr = symbols_[pos].address;
+	std::string oldName = symbols_[pos].name;
+	std::string newName;
+	if (!InputBox_GetString(MainWindow::GetHInstance(), GetHandle(),
+			L"Rename symbol", oldName, newName)) {
+		return;
+	}
+	if (!IsValidUserSymbolName(newName)) {
+		MessageBox(GetHandle(),
+			L"Invalid name. Alphanumerics + underscore, no leading digit, can't begin with 0x or pos_0x.",
+			L"Edit Symbol", MB_OK | MB_ICONWARNING);
+		return;
+	}
+	g_symbolMap->SetLabelName(newName.c_str(), addr);
+	g_symbolMap->MarkLabelAsUser(addr);
+	Refresh();
+	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
+}
+
+void CtrlUserSymbolList::Delete(int pos) {
+	if (pos < 0 || pos >= (int)symbols_.size()) return;
+	g_symbolMap->RemoveLabel(symbols_[pos].address);
+	Refresh();
+	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
+}
+
+void CtrlUserSymbolList::CopyAddress(int pos) {
+	if (pos < 0 || pos >= (int)symbols_.size()) return;
+	char buf[16];
+	snprintf(buf, sizeof(buf), "0x%08X", symbols_[pos].address);
+	W32Util::CopyTextToClipboard(GetHandle(), buf);
+}
+
+void CtrlUserSymbolList::AddNew() {
+	std::string addrStr;
+	if (!InputBox_GetString(MainWindow::GetHInstance(), GetHandle(),
+			L"Address (hex, e.g. 0x08800100)", "0x", addrStr)) {
+		return;
+	}
+	u32 addr = 0;
+	if (!parseExpression(addrStr.c_str(), cpu_, addr)) {
+		MessageBox(GetHandle(), L"Invalid address.", L"Add Symbol", MB_OK | MB_ICONWARNING);
+		return;
+	}
+	std::string name;
+	char def[32];
+	snprintf(def, sizeof(def), "label_%08X", addr);
+	if (!InputBox_GetString(MainWindow::GetHInstance(), GetHandle(),
+			L"Symbol name", def, name)) {
+		return;
+	}
+	if (!IsValidUserSymbolName(name)) {
+		MessageBox(GetHandle(),
+			L"Invalid name. Alphanumerics + underscore, no leading digit, can't begin with 0x or pos_0x.",
+			L"Add Symbol", MB_OK | MB_ICONWARNING);
+		return;
+	}
+	g_symbolMap->AddLabel(name.c_str(), addr);
+	g_symbolMap->SetLabelName(name.c_str(), addr);
+	g_symbolMap->MarkLabelAsUser(addr);
+	Refresh();
+	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
+}
+
+void CtrlUserSymbolList::Import() {
+	// Implemented in feature D — leave stub here so the menu item compiles
+	// and is visible. Wiring the file dialog + parse lands with that task.
+	MessageBox(GetHandle(), L"Import: implemented in a follow-up commit.",
+		L"Import .sym", MB_OK | MB_ICONINFORMATION);
+}
+
+void CtrlUserSymbolList::Export() {
+	// Implemented in feature D.
+	MessageBox(GetHandle(), L"Export: implemented in a follow-up commit.",
+		L"Export .sym", MB_OK | MB_ICONINFORMATION);
+}
+
+void CtrlUserSymbolList::ClearAll() {
+	if (symbols_.empty()) return;
+	if (MessageBox(GetHandle(), L"Remove all user-defined symbols?", L"Clear All",
+			MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
+		return;
+	}
+	g_symbolMap->ClearUserLabels();
+	Refresh();
+	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
 }
