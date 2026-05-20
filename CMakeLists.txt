@@ -1222,6 +1222,7 @@ set(WindowsFiles
 	Windows/XinputDevice.h
 	Windows/main.cpp
 	Windows/main.h
+	Windows/mingw_msvc_stubs.c
 	Windows/ppsspp.rc
 	Windows/resource.h
 	Windows/stdafx.cpp

@@ -1,7 +1,17 @@
 // This file in particular along with its header is public domain, use it for whatever you want.
 
 #include <windows.h>
+#if defined(__MINGW32__) || defined(__MINGW64__)
+// mingw's hidsdi.h doesn't declare its functions inside `extern "C"`, so a
+// C++ TU ends up calling the C++-mangled forms (HidD_GetHidGuid(_GUID*) etc.)
+// which the import lib doesn't have. Wrap the include locally. Native-MSVC
+// builds don't need this — their SDK header has extern "C" already.
+extern "C" {
 #include <hidsdi.h>
+}
+#else
+#include <hidsdi.h>
+#endif
 #include <setupapi.h>
 #include <initguid.h>
 #include <vector>

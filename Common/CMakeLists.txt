@@ -429,7 +429,9 @@ if(APPLE AND NOT LIBRETRO)
 endif()
 
 if(WIN32)
-	target_link_libraries(Common winmm dsound dxguid d2d1 dwrite d3d11 Version dbghelp)
+	# Lowercase `version` so mingw cross-compile (case-sensitive filesystem) resolves `libversion.a`.
+	# Native Windows linkers are case-insensitive, so this one spelling works for both.
+	target_link_libraries(Common winmm dsound dxguid d2d1 dwrite d3d11 version dbghelp)
 endif()
 
 target_link_libraries(Common ${LIBZIP_LIBRARY} 7zip ${PNG_LIBRARIES} basis_universal ${ZLIB_LIBRARY} pugixml vma gason udis86 ${RT_LIB} ${ATOMIC_LIB})

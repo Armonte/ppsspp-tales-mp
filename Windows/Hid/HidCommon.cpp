@@ -1,6 +1,12 @@
 #include "Common/CommonWindows.h"
 
+#if defined(__MINGW32__) || defined(__MINGW64__)
+extern "C" {
 #include <hidsdi.h>
+}
+#else
+#include <hidsdi.h>
+#endif
 
 #include "HidCommon.h"
 
