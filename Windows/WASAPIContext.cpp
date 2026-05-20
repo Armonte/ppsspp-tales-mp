@@ -1,5 +1,12 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
+#if defined(__MINGW32__) || defined(__MINGW64__)
+// mingw declares PKEY_Device_FriendlyName extern but never emits storage.
+// <initguid.h> re-defines DEFINE_PROPERTYKEY to actually emit the GUID data,
+// so the linker can resolve the symbol. Must come BEFORE the header that uses
+// it. Native-MSVC builds pick it up from propsys.lib and don't need this.
+#include <initguid.h>
+#endif
 #include <functiondiscoverykeys_devpkey.h>
 #include <audioclient.h>
 #include <avrt.h>

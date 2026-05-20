@@ -1575,7 +1575,10 @@ else()
 endif()
 
 if(WIN32)
-	target_link_libraries(Common winmm dsound dxguid Version)
+	# Lowercase `version` so mingw cross-compile (case-sensitive filesystem)
+	# resolves `libversion.a`. Native Windows linkers are case-insensitive so
+	# either works for them; this single spelling works for both.
+	target_link_libraries(Common winmm dsound dxguid version)
 endif()
 
 if(NOT LIBRETRO)
@@ -2866,6 +2869,7 @@ set(WindowsFiles
 	Windows/XinputDevice.h
 	Windows/main.cpp
 	Windows/main.h
+	Windows/mingw_msvc_stubs.c
 	Windows/ppsspp.rc
 	Windows/resource.h
 	Windows/stdafx.cpp
