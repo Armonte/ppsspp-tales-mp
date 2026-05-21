@@ -108,6 +108,10 @@ BOOL CALLBACK DinputDevice::DevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID pv
 
 void DinputDevice::getDevices(bool refresh) {
 	if (refresh) {
+		// Rebuild the list from scratch. Without this, unplugged devices linger
+		// forever and a hot-plugged device only ever gets appended, so its index
+		// depends on enumeration history rather than what's actually connected.
+		devices.clear();
 		// We don't want duplicate reporting from XInput devices through DInput.
 		ignoreDevices_ = DetectXInputVIDPIDs();
 		HidInputDevice::AddSupportedDevices(&ignoreDevices_);
@@ -422,10 +426,19 @@ DInputMetaDevice::DInputMetaDevice() {
 int DInputMetaDevice::UpdateState() {
 	constexpr int CHECK_FREQUENCY = 787;  // Just an arbitrary prime to try to not collide with other periodic checks.
 	if (checkCounter_++ > CHECK_FREQUENCY) {
+		// Force a fresh enumeration. needsCheck_ otherwise latches false after the
+		// first scan, so any pad plugged in after startup is never enumerated --
+		// which is why a second DInput pad only registered once the first was
+		// unplugged (a device-loss event was the only thing that re-armed it).
+		DinputDevice::CheckDevices();
 		const size_t newCount = DinputDevice::getNumPads();
-		if (newCount > numDinputDevices_) {
-			INFO_LOG(Log::System, "New controller device detected");
-			for (size_t i = numDinputDevices_; i < newCount; i++) {
+		if (newCount != numDinputDevices_) {
+			INFO_LOG(Log::System, "DInput device count changed (%d -> %d), rebuilding device list",
+				(int)numDinputDevices_, (int)newCount);
+			// Rebuild wholesale so add / remove / re-plug are all handled and the
+			// wrappers stay in step with the freshly enumerated device list.
+			devices_.clear();
+			for (size_t i = 0; i < newCount; i++) {
 				devices_.push_back(std::make_unique<DinputDevice>(static_cast<int>(i)));
 			}
 			numDinputDevices_ = newCount;
