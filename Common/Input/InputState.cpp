@@ -28,6 +28,8 @@ const char *GetDeviceName(int deviceId) {
 	case DEVICE_ID_HID_1: return "hid_2";
 	case DEVICE_ID_HID_2: return "hid_3";
 	case DEVICE_ID_HID_3: return "hid_4";
+	case DEVICE_ID_HID_4: return "hid_5";
+	case DEVICE_ID_HID_5: return "hid_6";
 	case DEVICE_ID_ACCELEROMETER: return "accelerometer";
 	case DEVICE_ID_MOUSE: return "mouse";
 	case DEVICE_ID_XR_CONTROLLER_LEFT: return "xr_l";
