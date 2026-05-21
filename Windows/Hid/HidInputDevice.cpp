@@ -5,7 +5,7 @@
 // mingw's hidsdi.h doesn't declare its functions inside `extern "C"`, so a
 // C++ TU ends up calling the C++-mangled forms (HidD_GetHidGuid(_GUID*) etc.)
 // which the import lib doesn't have. Wrap the include locally. Native-MSVC
-// builds don't need this — their SDK header has extern "C" already.
+// builds don't need this 窶・their SDK header has extern "C" already.
 extern "C" {
 #include <hidsdi.h>
 }
@@ -222,7 +222,7 @@ void HidInputDevice::ReleaseAllKeys(const ButtonInputMapping *buttonMappings, in
 }
 
 InputDeviceID HidInputDevice::DeviceID(int pad) {
-	return DEVICE_ID_PAD_0 + pad;
+	return DEVICE_ID_HID_0 + pad;
 }
 
 int HidInputDevice::UpdateState() {
