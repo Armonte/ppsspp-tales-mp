@@ -1306,6 +1306,9 @@ static bool IsValidUserSymbolName(const std::string &name) {
 
 CtrlUserSymbolList::CtrlUserSymbolList(HWND hwnd, DebugInterface *cpu)
 	: GenericListControl(hwnd, userSymListDef), cpu_(cpu) {
+	// Forward right-clicks on the empty area (iItem == -1) to OnRightClick so the
+	// "Add Symbol..." context menu appears, same as CtrlBreakpointList.
+	SetSendInvalidRows(true);
 	Refresh();
 }
 
