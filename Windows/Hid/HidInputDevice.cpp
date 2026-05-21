@@ -5,7 +5,7 @@
 // mingw's hidsdi.h doesn't declare its functions inside `extern "C"`, so a
 // C++ TU ends up calling the C++-mangled forms (HidD_GetHidGuid(_GUID*) etc.)
 // which the import lib doesn't have. Wrap the include locally. Native-MSVC
-// builds don't need this 窶・their SDK header has extern "C" already.
+// builds don't need this -- their SDK header has extern "C" already.
 extern "C" {
 #include <hidsdi.h>
 }
@@ -14,6 +14,7 @@ extern "C" {
 #endif
 #include <setupapi.h>
 #include <initguid.h>
+#include <string>
 #include <vector>
 
 #include "Windows/Hid/HidInputDevice.h"
@@ -42,7 +43,7 @@ static const HidStickMapping g_psStickMappings[] = {
 	{HID_STICK_LX, JOYSTICK_AXIS_X},
 	{HID_STICK_LY, JOYSTICK_AXIS_Y},
 	{HID_STICK_RX, JOYSTICK_AXIS_Z},
-	{HID_STICK_RY, JOYSTICK_AXIS_RZ},
+	{HID_STICK_RY, JOYSTICK_AXIS_RX},
 };
 
 struct HidTriggerMapping {
@@ -91,31 +92,227 @@ static const HIDControllerInfo *GetGamepadInfo(const HIDD_ATTRIBUTES &attr) {
 	return nullptr;
 }
 
-static HANDLE OpenFirstHIDController(std::unordered_set<std::wstring> &ignoreHidDevicePaths, HIDControllerType *subType, int *reportSize, int *outReportSize, const HIDControllerInfo **outInfo) {
+void HidInputDevice::AddSupportedDevices(std::set<u32> *deviceVIDPIDs) {
+	for (const auto &info : g_psInfos) {
+		const u32 vidpid = MAKELONG(info.vendorId, info.productId);
+		deviceVIDPIDs->insert(vidpid);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HidController -- one physical controller.
+// ---------------------------------------------------------------------------
+
+HidController::HidController(HANDLE handle, HIDControllerType subType, int pad,
+	int inReportSize, int outReportSize, std::wstring devicePath)
+	: handle_(handle), subType_(subType), pad_(pad),
+	  inReportSize_(inReportSize), outReportSize_(outReportSize),
+	  devicePath_(std::move(devicePath)) {}
+
+HidController::~HidController() {
+	if (handle_ && handle_ != INVALID_HANDLE_VALUE) {
+		switch (subType_) {
+		case HIDControllerType::DualShock:
+			ShutdownDualShock(handle_, outReportSize_);
+			break;
+		case HIDControllerType::DualSense:
+			ShutdownDualsense(handle_, outReportSize_);
+			break;
+		default:
+			break;
+		}
+		CloseHandle(handle_);
+		handle_ = nullptr;
+	}
+}
+
+bool HidController::HasAccelerometer() const {
+	switch (subType_) {
+	case HIDControllerType::DualSense:
+	case HIDControllerType::SwitchPro:
+		return true;
+	default:
+		return false;
+	}
+}
+
+void HidController::ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int count) {
+	const InputDeviceID deviceID = DeviceID();
+	for (int i = 0; i < count; i++) {
+		const auto &mapping = buttonMappings[i];
+		KeyInput key;
+		key.deviceId = deviceID;
+		key.flags = KeyInputFlags::UP;
+		key.keyCode = mapping.keyCode;
+		NativeKey(key);
+	}
+
+	static const InputAxis allAxes[6] = {
+		JOYSTICK_AXIS_X,
+		JOYSTICK_AXIS_Y,
+		JOYSTICK_AXIS_Z,
+		JOYSTICK_AXIS_RX,
+		JOYSTICK_AXIS_LTRIGGER,
+		JOYSTICK_AXIS_RTRIGGER,
+	};
+
+	for (const auto axisId : allAxes) {
+		AxisInput axis;
+		axis.deviceId = deviceID;
+		axis.axisId = axisId;
+		axis.value = 0;
+		NativeAxis(&axis, 1);
+	}
+}
+
+bool HidController::UpdateState(bool sendInput) {
+	const InputDeviceID deviceID = DeviceID();
+
+	HIDControllerState state{};
+	bool result = false;
+	const ButtonInputMapping *buttonMappings = nullptr;
+	size_t buttonMappingsSize = 0;
+	if (subType_ == HIDControllerType::DualShock) {
+		result = ReadDualShockInput(handle_, &state, inReportSize_);
+		GetPSButtonInputMappings(&buttonMappings, &buttonMappingsSize);
+	} else if (subType_ == HIDControllerType::DualSense) {
+		result = ReadDualSenseInput(handle_, &state, inReportSize_);
+		GetPSButtonInputMappings(&buttonMappings, &buttonMappingsSize);
+	} else if (subType_ == HIDControllerType::SwitchPro) {
+		result = ReadSwitchProInput(handle_, &state);
+		GetSwitchButtonInputMappings(&buttonMappings, &buttonMappingsSize);
+	}
+
+	if (!result) {
+		INFO_LOG(Log::System, "Failed to read HID controller (HID slot %d) - assuming disconnected.", pad_);
+		KeyMap::NotifyPadDisconnected(deviceID);
+		ReleaseAllKeys(buttonMappings, (int)buttonMappingsSize);
+		return false;
+	}
+
+	// Process the input and generate input events.
+	const u32 downMask = state.buttons & (~prevState_.buttons);
+	const u32 upMask = (~state.buttons) & prevState_.buttons;
+
+	for (u32 i = 0; i < buttonMappingsSize; i++) {
+		const ButtonInputMapping &mapping = buttonMappings[i];
+		if ((downMask & mapping.button) && sendInput) {
+			KeyInput key;
+			key.deviceId = deviceID;
+			key.flags = KeyInputFlags::DOWN;
+			key.keyCode = mapping.keyCode;
+			NativeKey(key);
+		}
+		if ((upMask & mapping.button) && sendInput) {
+			KeyInput key;
+			key.deviceId = deviceID;
+			key.flags = KeyInputFlags::UP;
+			key.keyCode = mapping.keyCode;
+			NativeKey(key);
+		}
+	}
+
+	for (const auto &mapping : g_psStickMappings) {
+		if (state.stickAxes[mapping.stickAxis] != prevState_.stickAxes[mapping.stickAxis] && sendInput) {
+			AxisInput axis;
+			axis.deviceId = deviceID;
+			axis.axisId = mapping.inputAxis;
+			axis.value = (float)state.stickAxes[mapping.stickAxis] * (1.0f / 128.0f);
+			NativeAxis(&axis, 1);
+		}
+	}
+
+	for (const auto &mapping : g_psTriggerMappings) {
+		if (state.triggerAxes[mapping.triggerAxis] != prevState_.triggerAxes[mapping.triggerAxis] && sendInput) {
+			AxisInput axis;
+			axis.deviceId = deviceID;
+			axis.axisId = mapping.inputAxis;
+			axis.value = (float)state.triggerAxes[mapping.triggerAxis] * (1.0f / 255.0f);
+			NativeAxis(&axis, 1);
+		}
+	}
+
+	if (state.accValid && sendInput) {
+		NativeAccelerometer(state.accelerometer[0], state.accelerometer[1], state.accelerometer[2]);
+	}
+
+	prevState_ = state;
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// HidInputDevice -- meta-device managing every connected HID controller.
+// ---------------------------------------------------------------------------
+
+void HidInputDevice::Init() {}
+
+void HidInputDevice::Shutdown() {
+	controllers_.clear();
+}
+
+bool HidInputDevice::HasAccelerometer() const {
+	for (const auto &controller : controllers_) {
+		if (controller->HasAccelerometer()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+int HidInputDevice::FirstFreePadSlot() const {
+	for (int slot = 0; slot < MAX_HID_CONTROLLERS; slot++) {
+		bool used = false;
+		for (const auto &controller : controllers_) {
+			if (controller->Pad() == slot) {
+				used = true;
+				break;
+			}
+		}
+		if (!used) {
+			return slot;
+		}
+	}
+	return -1;
+}
+
+void HidInputDevice::ScanForNewControllers() {
 	GUID hidGuid;
 	HidD_GetHidGuid(&hidGuid);
 
 	HDEVINFO deviceInfoSet = SetupDiGetClassDevs(&hidGuid, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
 	if (deviceInfoSet == INVALID_HANDLE_VALUE)
-		return nullptr;
+		return;
 
 	SP_DEVICE_INTERFACE_DATA interfaceData;
 	interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
 
 	for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfoSet, nullptr, &hidGuid, i, &interfaceData); ++i) {
+		const int freeSlot = FirstFreePadSlot();
+		if (freeSlot < 0)
+			break;  // No room for more controllers.
+
 		DWORD requiredSize = 0;
 		SetupDiGetDeviceInterfaceDetail(deviceInfoSet, &interfaceData, nullptr, 0, &requiredSize, nullptr);
 
 		std::vector<BYTE> buffer(requiredSize);
-		auto* detailData = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(buffer.data());
+		auto *detailData = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(buffer.data());
 		detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
 
 		if (!SetupDiGetDeviceInterfaceDetail(deviceInfoSet, &interfaceData, detailData, requiredSize, nullptr, nullptr)) {
 			continue;
 		}
 
-		std::wstring hidDevicePath = detailData->DevicePath;
-		if (ignoreHidDevicePaths.find(hidDevicePath) != ignoreHidDevicePaths.end()) {
+		// Skip devices we've already opened -- check by path before opening, so
+		// we don't pointlessly CreateFile/HidD_GetAttributes a known device.
+		std::wstring devicePath = detailData->DevicePath;
+		bool alreadyOpen = false;
+		for (const auto &controller : controllers_) {
+			if (controller->DevicePath() == devicePath) {
+				alreadyOpen = true;
+				break;
+			}
+		}
+		if (alreadyOpen) {
 			continue;
 		}
 
@@ -132,225 +329,78 @@ static HANDLE OpenFirstHIDController(std::unordered_set<std::wstring> &ignoreHid
 		}
 
 		const HIDControllerInfo *info = GetGamepadInfo(attr);
-		*outInfo = info;
 		if (!info) {
+			// Some other HID device (keyboard, mouse, unsupported pad).
 			CloseHandle(handle);
-			ignoreHidDevicePaths.insert(hidDevicePath);
 			continue;
 		}
 
-		*subType = info->type;
-		INFO_LOG(Log::UI, "Found supported gamepad. PID: %04x", info->productId);
+		INFO_LOG(Log::UI, "Found supported gamepad '%s' (PID %04x), assigning HID slot %d", info->name, info->productId, freeSlot);
+
 		HIDP_CAPS caps;
 		PHIDP_PREPARSED_DATA preparsedData;
-
 		HidD_GetPreparsedData(handle, &preparsedData);
 		HidP_GetCaps(preparsedData, &caps);
 		HidD_FreePreparsedData(preparsedData);
 
-		*reportSize = caps.InputReportByteLength;
-		*outReportSize = caps.OutputReportByteLength;
+		const int inReportSize = caps.InputReportByteLength;
+		const int outReportSize = caps.OutputReportByteLength;
 
-		INFO_LOG(Log::UI, "Initializing gamepad. out report size=%d", *outReportSize);
-		bool result;
-		switch (*subType) {
+		INFO_LOG(Log::UI, "Initializing gamepad. out report size=%d", outReportSize);
+		bool result = false;
+		switch (info->type) {
 		case HIDControllerType::DualSense:
-			result = InitializeDualSense(handle, *outReportSize);
+			result = InitializeDualSense(handle, outReportSize);
 			break;
 		case HIDControllerType::DualShock:
-			result = InitializeDualShock(handle, *outReportSize);
+			result = InitializeDualShock(handle, outReportSize);
 			break;
 		case HIDControllerType::SwitchPro:
 			result = InitializeSwitchPro(handle);
 			break;
 		}
-
 		if (!result) {
-			ERROR_LOG(Log::UI, "Controller initialization failed");
+			// Initialization only sets things like the lightbar -- reads can
+			// still work, so keep the controller rather than retrying forever.
+			ERROR_LOG(Log::UI, "Controller initialization failed (continuing anyway)");
 		}
 
-		SetupDiDestroyDeviceInfoList(deviceInfoSet);
-		return handle;
+		KeyMap::NotifyPadConnected((InputDeviceID)(DEVICE_ID_HID_0 + freeSlot), info->name);
+		controllers_.push_back(std::make_unique<HidController>(handle, info->type, freeSlot,
+			inReportSize, outReportSize, std::move(devicePath)));
 	}
+
 	SetupDiDestroyDeviceInfoList(deviceInfoSet);
-	return nullptr;
-}
-
-void HidInputDevice::AddSupportedDevices(std::set<u32> *deviceVIDPIDs) {
-	for (const auto &info : g_psInfos) {
-		const u32 vidpid = MAKELONG(info.vendorId, info.productId);
-		deviceVIDPIDs->insert(vidpid);
-	}
-}
-
-void HidInputDevice::Init() {}
-void HidInputDevice::Shutdown() {
-	if (controller_) {
-		switch (subType_) {
-		case HIDControllerType::DualShock:
-			ShutdownDualShock(controller_, outReportSize_);
-			break;
-		case HIDControllerType::DualSense:
-			ShutdownDualsense(controller_, outReportSize_);
-			break;
-		}
-		CloseHandle(controller_);
-		controller_ = nullptr;
-	}
-}
-
-void HidInputDevice::ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int count) {
-	for (int i = 0; i < count; i++) {
-		const auto &mapping = buttonMappings[i];
-		KeyInput key;
-		key.deviceId = DeviceID(pad_);
-		key.flags = KeyInputFlags::UP;
-		key.keyCode = mapping.keyCode;
-		NativeKey(key);
-	}
-
-	static const InputAxis allAxes[6] = {
-		JOYSTICK_AXIS_X,
-		JOYSTICK_AXIS_Y,
-		JOYSTICK_AXIS_Z,
-		JOYSTICK_AXIS_RZ,
-		JOYSTICK_AXIS_LTRIGGER,
-		JOYSTICK_AXIS_RTRIGGER,
-	};
-
-	for (const auto axisId : allAxes) {
-		AxisInput axis;
-		axis.deviceId = DeviceID(pad_);
-		axis.axisId = axisId;
-		axis.value = 0;
-		NativeAxis(&axis, 1);
-	}
-}
-
-InputDeviceID HidInputDevice::DeviceID(int pad) {
-	return DEVICE_ID_HID_0 + pad;
-}
-
-static void GetButtonInputMappings(HIDControllerType subType, const ButtonInputMapping **mappings, size_t *size) {
-	if (subType == HIDControllerType::SwitchPro) {
-		GetSwitchButtonInputMappings(mappings, size);
-	} else {
-		GetPSButtonInputMappings(mappings, size);
-	}
-}
-
-void HidInputDevice::Disconnect() {
-	const ButtonInputMapping *buttonMappings = nullptr;
-	size_t buttonMappingsSize = 0;
-	GetButtonInputMappings(subType_, &buttonMappings, &buttonMappingsSize);
-
-	KeyMap::NotifyPadDisconnected(DeviceID(pad_));
-	ReleaseAllKeys(buttonMappings, (int)buttonMappingsSize);
-	CloseHandle(controller_);
-	controller_ = nullptr;
-	// Otherwise buttons held at disconnect aren't sent again on reconnect.
-	prevState_ = {};
-	pollCount_ = POLL_FREQ;
 }
 
 int HidInputDevice::UpdateState() {
-	const InputDeviceID deviceID = DeviceID(pad_);
-
-	if (!g_Config.bAllowHIDInput) {
-		// Don't keep the device open, or block the input thread reading it, when HID input is off.
-		if (controller_) {
-			Disconnect();
+	// Throttled scan for newly-plugged controllers. We only enumerate when
+	// there's a free slot -- the SetupDi scan isn't free, and running it on the
+	// hot path every frame is exactly what stalls input reads.
+	if (pollCount_ <= 0) {
+		pollCount_ = POLL_FREQ;
+		if (FirstFreePadSlot() >= 0) {
+			ScanForNewControllers();
 		}
-		return 0;
+	} else {
+		pollCount_--;
 	}
 
-	if (!controller_) {
-		// Poll for controllers from time to time.
-		if (pollCount_ == 0) {
-			pollCount_ = POLL_FREQ;
-			const HIDControllerInfo *info{};
-			HANDLE newController = OpenFirstHIDController(ignoreHidDevicePaths_, &subType_, &inReportSize_, &outReportSize_, &info);
-			if (newController) {
-				controller_ = newController;
-				if (info) {
-					name_ = info->name;
-				}
-				KeyMap::NotifyPadConnected(deviceID, name_);
-			}
+	const bool sendInput = g_Config.bAllowHIDInput;
+	bool anyConnected = false;
+
+	for (size_t i = 0; i < controllers_.size(); ) {
+		if (controllers_[i]->UpdateState(sendInput)) {
+			anyConnected = true;
+			++i;
 		} else {
-			pollCount_--;
+			// Read failed -> treat as disconnected. Dropping it frees the pad
+			// slot, so a later scan can pick the controller back up.
+			controllers_.erase(controllers_.begin() + i);
 		}
 	}
 
-	if (controller_) {
-		// The readers leave the state alone for reports they don't understand.
-		HIDControllerState state = prevState_;
-		bool result = false;
-		const ButtonInputMapping *buttonMappings = nullptr;
-		size_t buttonMappingsSize = 0;
-		GetButtonInputMappings(subType_, &buttonMappings, &buttonMappingsSize);
-		if (subType_ == HIDControllerType::DualShock) {
-			result = ReadDualShockInput(controller_, &state, inReportSize_);
-		} else if (subType_ == HIDControllerType::DualSense) {
-			result = ReadDualSenseInput(controller_, &state, inReportSize_);
-		} else if (subType_ == HIDControllerType::SwitchPro) {
-			result = ReadSwitchProInput(controller_, &state);
-		}
-
-		if (result) {
-			// Process the input and generate input events.
-			const u32 downMask = state.buttons & (~prevState_.buttons);
-			const u32 upMask = (~state.buttons) & prevState_.buttons;
-
-			for (u32 i = 0; i < buttonMappingsSize; i++) {
-				const ButtonInputMapping &mapping = buttonMappings[i];
-				if (downMask & mapping.button) {
-					KeyInput key;
-					key.deviceId = deviceID;
-					key.flags = KeyInputFlags::DOWN;
-					key.keyCode = mapping.keyCode;
-					NativeKey(key);
-				}
-				if (upMask & mapping.button) {
-					KeyInput key;
-					key.deviceId = deviceID;
-					key.flags = KeyInputFlags::UP;
-					key.keyCode = mapping.keyCode;
-					NativeKey(key);
-				}
-			}
-
-			for (const auto &mapping : g_psStickMappings) {
-				if (state.stickAxes[mapping.stickAxis] != prevState_.stickAxes[mapping.stickAxis]) {
-					AxisInput axis;
-					axis.deviceId = deviceID;
-					axis.axisId = mapping.inputAxis;
-					axis.value = (float)state.stickAxes[mapping.stickAxis] * (1.0f / 128.0f);
-					NativeAxis(&axis, 1);
-				}
-			}
-
-			for (const auto &mapping : g_psTriggerMappings) {
-				if (state.triggerAxes[mapping.triggerAxis] != prevState_.triggerAxes[mapping.triggerAxis]) {
-					AxisInput axis;
-					axis.deviceId = deviceID;
-					axis.axisId = mapping.inputAxis;
-					axis.value = (float)state.triggerAxes[mapping.triggerAxis] * (1.0f / 255.0f);
-					NativeAxis(&axis, 1);
-				}
-			}
-
-			if (state.accValid) {
-				NativeAccelerometer(state.accelerometer[0], state.accelerometer[1], state.accelerometer[2]);
-			}
-
-			prevState_ = state;
-			return UPDATESTATE_NO_SLEEP;  // The ReadFile sleeps for us, effectively.
-		} else {
-			INFO_LOG(Log::System, "Failed to read controller - assuming disconnected.");
-			// might have been disconnected. retry later.
-			Disconnect();
-		}
-	}
-	return 0;
+	// A successful HID read blocks in ReadFile, which already paces us -- tell
+	// the input thread not to sleep on top of that.
+	return anyConnected ? UPDATESTATE_NO_SLEEP : 0;
 }
