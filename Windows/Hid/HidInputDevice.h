@@ -5,6 +5,9 @@
 #pragma once
 
 #include <set>
+#include <string>
+#include <memory>
+#include <vector>
 
 #include "Common/CommonTypes.h"
 #include "Common/Input/InputState.h"
@@ -37,8 +40,42 @@ struct ButtonInputMapping {
 	InputKeyCode keyCode;
 };
 
-// Supports a few specific HID input devices, namely DualShock and DualSense.
-// More may be added later. Just picks the first one available, for now.
+// One physical HID controller (DualShock / DualSense / Switch Pro). Owns its
+// device handle and reports input under its own DEVICE_ID_HID_<pad> id.
+class HidController {
+public:
+	HidController(HANDLE handle, HIDControllerType subType, int pad,
+		int inReportSize, int outReportSize, std::wstring devicePath);
+	~HidController();
+
+	HidController(const HidController &) = delete;
+	HidController &operator=(const HidController &) = delete;
+
+	// Reads one input report and emits events. Returns false if the read
+	// failed, which we treat as the controller having been disconnected.
+	bool UpdateState(bool sendInput);
+	bool HasAccelerometer() const;
+
+	int Pad() const { return pad_; }
+	const std::wstring &DevicePath() const { return devicePath_; }
+
+private:
+	void ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int count);
+	InputDeviceID DeviceID() const { return (InputDeviceID)(DEVICE_ID_HID_0 + pad_); }
+
+	HANDLE handle_;
+	HIDControllerType subType_;
+	HIDControllerState prevState_{};
+	int pad_;
+	int inReportSize_;
+	int outReportSize_;
+	std::wstring devicePath_;
+};
+
+// Meta-device that discovers and polls every supported HID controller, up to
+// DEVICE_ID_HID_5 (6 slots). Controllers are picked up as they appear and
+// dropped when their reads start failing. Originally this only ever opened the
+// first controller it found.
 class HidInputDevice : public InputDevice {
 public:
 	void Init() override;
@@ -46,28 +83,20 @@ public:
 	void Shutdown() override;
 
 	static void AddSupportedDevices(std::set<u32> *deviceVIDPIDs);
-	bool HasAccelerometer() const override {
-		switch (subType_) {
-		case HIDControllerType::DualSense:
-		case HIDControllerType::SwitchPro:
-			return true;
-		default:
-			break;
-		}
-		return false;
-	}
+
+	bool HasAccelerometer() const override;
+
 private:
-	void ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int count);
-	InputDeviceID DeviceID(int pad);
-	HIDControllerState prevState_{};
-	HIDControllerType subType_{};
-	HANDLE controller_;
-	std::string name_;
-	int pad_ = 0;
+	// Enumerates HID devices and opens any supported ones not already open,
+	// assigning each the lowest free pad slot. Only called when a slot is free.
+	void ScanForNewControllers();
+	int FirstFreePadSlot() const;
+
+	std::vector<std::unique_ptr<HidController>> controllers_;
 	int pollCount_ = 0;
-	int inReportSize_ = 0;
-	int outReportSize_ = 0;
 	enum {
 		POLL_FREQ = 709,  // a prime number.
+		// HID controllers get device ids DEVICE_ID_HID_0 .. DEVICE_ID_HID_5.
+		MAX_HID_CONTROLLERS = DEVICE_ID_HID_5 - DEVICE_ID_HID_0 + 1,
 	};
 };
