@@ -886,6 +886,14 @@ void SymbolMap::AddLabel(const char* name, u32 address, int moduleIndex) {
 
 	if (moduleIndex == -1) {
 		moduleIndex = GetModuleIndex(address);
+		if (moduleIndex == -1) {
+			// Address isn't inside any loaded module (e.g. a custom patch region
+			// above the game module). Module 0 is the absolute-address bucket and
+			// IsModuleActive() always treats it as active -- without this the label
+			// is stored but never reaches activeLabels, so it's silently invisible.
+			moduleIndex = 0;
+			sawUnknownModule = true;
+		}
 	} else if (moduleIndex == 0) {
 		sawUnknownModule = true;
 	}
