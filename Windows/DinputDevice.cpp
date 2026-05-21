@@ -430,7 +430,10 @@ int DInputMetaDevice::UpdateState() {
 		// first scan, so any pad plugged in after startup is never enumerated --
 		// which is why a second DInput pad only registered once the first was
 		// unplugged (a device-loss event was the only thing that re-armed it).
-		DinputDevice::CheckDevices();
+
+		//INFO_LOG(Log::System, "attempting dinput refresh");
+
+		//DinputDevice::CheckDevices(); //this is not only entirely unnecessary because the getNumPads() check after, but it causes input reads to drop so it is VERY BAD
 		const size_t newCount = DinputDevice::getNumPads();
 		if (newCount != numDinputDevices_) {
 			INFO_LOG(Log::System, "DInput device count changed (%d -> %d), rebuilding device list",
