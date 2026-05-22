@@ -173,18 +173,7 @@ static void ReadReport(HIDControllerState* state, u32 *buttons, const T& report)
 	memcpy(buttons, &report.buttons[0], 3);
 }
 
-bool ReadDualSenseInput(HANDLE handle, HIDControllerState *state, int inReportSize) {
-	if (inReportSize > 1024) {
-		return false;
-	}
-	BYTE inputReport[1024]{};
-
-	DWORD bytesRead = 0;
-	if (!ReadFile(handle, inputReport, inReportSize, &bytesRead, nullptr)) {
-		const u32 error = GetLastError();
-		return false;
-	}
-
+bool ParseDualSenseInput(const BYTE *inputReport, DWORD bytesRead, HIDControllerState *state, int inReportSize) {
 	if (bytesRead < 14) {
 		return false;
 	}

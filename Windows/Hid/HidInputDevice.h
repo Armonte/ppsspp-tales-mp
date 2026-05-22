@@ -42,6 +42,11 @@ struct ButtonInputMapping {
 
 // One physical HID controller (DualShock / DualSense / Switch Pro). Owns its
 // device handle and reports input under its own DEVICE_ID_HID_<pad> id.
+//
+// Reads are done with overlapped (asynchronous) I/O: a read is always kept in
+// flight and UpdateState() just checks whether it finished, without ever
+// blocking. That keeps one controller -- or a controller that has stopped
+// sending reports -- from stalling the shared input thread.
 class HidController {
 public:
 	HidController(HANDLE handle, HIDControllerType subType, int pad,
@@ -51,8 +56,8 @@ public:
 	HidController(const HidController &) = delete;
 	HidController &operator=(const HidController &) = delete;
 
-	// Reads one input report and emits events. Returns false if the read
-	// failed, which we treat as the controller having been disconnected.
+	// Drains any input reports that have arrived since the last call and emits
+	// events. Returns false if the device errored out (treated as disconnected).
 	bool UpdateState(bool sendInput);
 	bool HasAccelerometer() const;
 
@@ -60,6 +65,10 @@ public:
 	const std::wstring &DevicePath() const { return devicePath_; }
 
 private:
+	// Queues an asynchronous read. Returns false on a genuine device error.
+	bool IssueRead();
+	// Parses readBuffer_ for a completed read and emits the resulting events.
+	void ProcessReport(DWORD bytesRead, bool sendInput);
 	void ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int count);
 	InputDeviceID DeviceID() const { return (InputDeviceID)(DEVICE_ID_HID_0 + pad_); }
 
@@ -70,6 +79,13 @@ private:
 	int inReportSize_;
 	int outReportSize_;
 	std::wstring devicePath_;
+
+	// Overlapped read state.
+	OVERLAPPED overlapped_{};
+	HANDLE readEvent_ = nullptr;
+	int readSize_ = 0;
+	bool readPending_ = false;
+	BYTE readBuffer_[1024]{};
 };
 
 // Meta-device that discovers and polls every supported HID controller, up to

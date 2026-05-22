@@ -101,21 +101,11 @@ bool ShutdownDualShock(HANDLE handle, int outReportSize) {
 	return WriteReport(handle, report);
 }
 
-bool ReadDualShockInput(HANDLE handle, HIDControllerState *state, int inReportSize) {
-	if (inReportSize > 1024) {
-		return false;
-	}
-	BYTE inputReport[1024]{};
-	DWORD bytesRead = 0;
-	if (!ReadFile(handle, inputReport, inReportSize, &bytesRead, nullptr)) {
-		u32 error = GetLastError();
-		return false;
-	}
-	DualShockInputReport report{};
-	static_assert(sizeof(report) < sizeof(inputReport));
+bool ParseDualShockInput(const BYTE *inputReport, DWORD bytesRead, HIDControllerState *state) {
 	if (bytesRead < 14) {
 		return false;
 	}
+	DualShockInputReport report{};
 
 	// OK, check the first byte to figure out what we're dealing with here.
 	int offset = 1;

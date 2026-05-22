@@ -60,7 +60,8 @@ enum class SwitchProSubCmd {
 	ENABLE_VIBRATION = 0x48,
 };
 
-constexpr int SwitchPro_INPUT_REPORT_LEN = 362;
+// SwitchPro_INPUT_REPORT_LEN lives in SwitchPro.h now (the read length is
+// needed by HidController).
 constexpr int SwitchPro_OUTPUT_REPORT_LEN = 49;
 constexpr int SwitchPro_RUMBLE_REPORT_LEN = 64;
 
@@ -146,18 +147,15 @@ static bool SendSwitchSubcommand(HANDLE handle, u8 subcommand, const u8 *data, u
 	buf[10] = subcommand;
 	if (data && len > 0) memcpy(&buf[11], data, len);
 
-	DWORD written;
-	return WriteFile(handle, buf, 64, &written, nullptr);
+	return WriteReport(handle, buf, 64);
 }
 
 bool InitializeSwitchPro(HANDLE handle) {
 	// 1. USB Handshake (only needed for wired, safe for BT)
-	u8 cmd_usb_enable = 0x01;
-	DWORD w;
 	u8 handshake[2] = {0x80, 0x01};
-	WriteFile(handle, handshake, 2, &w, nullptr);
+	WriteReport(handle, handshake, 2);
 	handshake[1] = 0x02; // Handshake 2
-	WriteFile(handle, handshake, 2, &w, nullptr);
+	WriteReport(handle, handshake, 2);
 
 	// 2. Set Full Input Mode (0x30)
 	u8 mode = 0x30;
@@ -170,11 +168,8 @@ bool InitializeSwitchPro(HANDLE handle) {
 	return true;
 }
 
-bool ReadSwitchProInput(HANDLE handle, HIDControllerState *state) {
-	BYTE inputReport[SwitchPro_INPUT_REPORT_LEN]{};
-	DWORD bytesRead = 0;
-	if (!ReadFile(handle, inputReport, sizeof(inputReport), &bytesRead, nullptr)) {
-		u32 error = GetLastError();
+bool ParseSwitchProInput(const BYTE *inputReport, DWORD bytesRead, HIDControllerState *state) {
+	if (bytesRead < sizeof(SwitchProInputReport)) {
 		return false;
 	}
 
@@ -182,7 +177,6 @@ bool ReadSwitchProInput(HANDLE handle, HIDControllerState *state) {
 	if (inputReport[0] != 0x30 && inputReport[0] != 0x21) return false;
 
 	const SwitchProInputReport* report = (const SwitchProInputReport*)inputReport;
-	u32 buttons = 0;
 	memcpy(&state->buttons, &report->buttons[0], 3);
 	// Decode Sticks (Keep your existing logic)
 	DecodeSwitchProStick(report->lStick, &state->stickAxes[HID_STICK_LX], &state->stickAxes[HID_STICK_LY]);

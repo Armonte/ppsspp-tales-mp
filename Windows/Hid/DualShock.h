@@ -47,5 +47,5 @@ inline u32 DecodePSHatSwitch(u8 dpad) {
 
 bool InitializeDualShock(HANDLE handle, int outReportSize);
 bool ShutdownDualShock(HANDLE handle, int outReportSize);
-bool ReadDualShockInput(HANDLE handle, HIDControllerState *state, int inReportSize);
+bool ParseDualShockInput(const BYTE *inputReport, DWORD bytesRead, HIDControllerState *state);
 void GetPSButtonInputMappings(const ButtonInputMapping **mappings, size_t *size);

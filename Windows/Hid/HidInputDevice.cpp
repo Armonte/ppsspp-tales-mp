@@ -100,16 +100,32 @@ void HidInputDevice::AddSupportedDevices(std::set<u32> *deviceVIDPIDs) {
 }
 
 // ---------------------------------------------------------------------------
-// HidController -- one physical controller.
+// HidController -- one physical controller, polled with overlapped I/O.
 // ---------------------------------------------------------------------------
 
 HidController::HidController(HANDLE handle, HIDControllerType subType, int pad,
 	int inReportSize, int outReportSize, std::wstring devicePath)
 	: handle_(handle), subType_(subType), pad_(pad),
 	  inReportSize_(inReportSize), outReportSize_(outReportSize),
-	  devicePath_(std::move(devicePath)) {}
+	  devicePath_(std::move(devicePath)) {
+	readEvent_ = CreateEvent(nullptr, TRUE, FALSE, nullptr);  // manual-reset
+
+	int rs = (subType_ == HIDControllerType::SwitchPro) ? SwitchPro_INPUT_REPORT_LEN : inReportSize_;
+	if (rs <= 0 || rs > (int)sizeof(readBuffer_)) {
+		rs = (int)sizeof(readBuffer_);
+	}
+	readSize_ = rs;
+}
 
 HidController::~HidController() {
+	if (readPending_ && handle_ && handle_ != INVALID_HANDLE_VALUE) {
+		// Cancel the in-flight read and wait for it to actually finish before
+		// the handle / OVERLAPPED go away.
+		CancelIoEx(handle_, &overlapped_);
+		DWORD bytesRead = 0;
+		GetOverlappedResult(handle_, &overlapped_, &bytesRead, TRUE);
+		readPending_ = false;
+	}
 	if (handle_ && handle_ != INVALID_HANDLE_VALUE) {
 		switch (subType_) {
 		case HIDControllerType::DualShock:
@@ -123,6 +139,10 @@ HidController::~HidController() {
 		}
 		CloseHandle(handle_);
 		handle_ = nullptr;
+	}
+	if (readEvent_) {
+		CloseHandle(readEvent_);
+		readEvent_ = nullptr;
 	}
 }
 
@@ -165,32 +185,51 @@ void HidController::ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int
 	}
 }
 
-bool HidController::UpdateState(bool sendInput) {
-	const InputDeviceID deviceID = DeviceID();
+bool HidController::IssueRead() {
+	overlapped_ = {};
+	overlapped_.hEvent = readEvent_;
+	if (readEvent_) {
+		ResetEvent(readEvent_);
+	}
+	DWORD bytesRead = 0;
+	if (ReadFile(handle_, readBuffer_, (DWORD)readSize_, &bytesRead, &overlapped_)) {
+		// Completed synchronously; GetOverlappedResult will still report it.
+		readPending_ = true;
+		return true;
+	}
+	if (GetLastError() == ERROR_IO_PENDING) {
+		readPending_ = true;
+		return true;
+	}
+	return false;  // genuine device error
+}
 
+void HidController::ProcessReport(DWORD bytesRead, bool sendInput) {
 	HIDControllerState state{};
-	bool result = false;
+	bool parsed = false;
 	const ButtonInputMapping *buttonMappings = nullptr;
 	size_t buttonMappingsSize = 0;
-	if (subType_ == HIDControllerType::DualShock) {
-		result = ReadDualShockInput(handle_, &state, inReportSize_);
+	switch (subType_) {
+	case HIDControllerType::DualShock:
+		parsed = ParseDualShockInput(readBuffer_, bytesRead, &state);
 		GetPSButtonInputMappings(&buttonMappings, &buttonMappingsSize);
-	} else if (subType_ == HIDControllerType::DualSense) {
-		result = ReadDualSenseInput(handle_, &state, inReportSize_);
+		break;
+	case HIDControllerType::DualSense:
+		parsed = ParseDualSenseInput(readBuffer_, bytesRead, &state, inReportSize_);
 		GetPSButtonInputMappings(&buttonMappings, &buttonMappingsSize);
-	} else if (subType_ == HIDControllerType::SwitchPro) {
-		result = ReadSwitchProInput(handle_, &state);
+		break;
+	case HIDControllerType::SwitchPro:
+		parsed = ParseSwitchProInput(readBuffer_, bytesRead, &state);
 		GetSwitchButtonInputMappings(&buttonMappings, &buttonMappingsSize);
+		break;
 	}
 
-	if (!result) {
-		INFO_LOG(Log::System, "Failed to read HID controller (HID slot %d) - assuming disconnected.", pad_);
-		KeyMap::NotifyPadDisconnected(deviceID);
-		ReleaseAllKeys(buttonMappings, (int)buttonMappingsSize);
-		return false;
+	if (!parsed) {
+		// Unrecognized or short packet -- ignore it, keep the previous state.
+		return;
 	}
 
-	// Process the input and generate input events.
+	const InputDeviceID deviceID = DeviceID();
 	const u32 downMask = state.buttons & (~prevState_.buttons);
 	const u32 upMask = (~state.buttons) & prevState_.buttons;
 
@@ -237,7 +276,38 @@ bool HidController::UpdateState(bool sendInput) {
 	}
 
 	prevState_ = state;
-	return true;
+}
+
+bool HidController::UpdateState(bool sendInput) {
+	// Make sure a read is in flight.
+	if (!readPending_) {
+		if (!IssueRead())
+			return false;
+	}
+
+	// Drain every report that has arrived since the last tick. GetOverlappedResult
+	// with bWait == FALSE never blocks -- if nothing arrived we just return.
+	for (;;) {
+		DWORD bytesRead = 0;
+		if (!GetOverlappedResult(handle_, &overlapped_, &bytesRead, FALSE)) {
+			const DWORD err = GetLastError();
+			if (err == ERROR_IO_INCOMPLETE) {
+				// Read still in flight -- nothing new this tick, still connected.
+				return true;
+			}
+			// Genuine error -- treat as disconnected.
+			INFO_LOG(Log::System, "HID controller (slot %d) read failed - assuming disconnected.", pad_);
+			KeyMap::NotifyPadDisconnected(DeviceID());
+			return false;
+		}
+		readPending_ = false;
+		ProcessReport(bytesRead, sendInput);
+		if (!IssueRead()) {
+			INFO_LOG(Log::System, "HID controller (slot %d) read failed - assuming disconnected.", pad_);
+			KeyMap::NotifyPadDisconnected(DeviceID());
+			return false;
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +386,10 @@ void HidInputDevice::ScanForNewControllers() {
 			continue;
 		}
 
+		// Opened overlapped so reads can be non-blocking.
 		HANDLE handle = CreateFile(detailData->DevicePath, GENERIC_READ | GENERIC_WRITE,
-			FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+			FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, nullptr);
 		if (handle == INVALID_HANDLE_VALUE) {
 			continue;
 		}
@@ -387,11 +459,9 @@ int HidInputDevice::UpdateState() {
 	}
 
 	const bool sendInput = g_Config.bAllowHIDInput;
-	bool anyConnected = false;
 
 	for (size_t i = 0; i < controllers_.size(); ) {
 		if (controllers_[i]->UpdateState(sendInput)) {
-			anyConnected = true;
 			++i;
 		} else {
 			// Read failed -> treat as disconnected. Dropping it frees the pad
@@ -400,7 +470,7 @@ int HidInputDevice::UpdateState() {
 		}
 	}
 
-	// A successful HID read blocks in ReadFile, which already paces us -- tell
-	// the input thread not to sleep on top of that.
-	return anyConnected ? UPDATESTATE_NO_SLEEP : 0;
+	// Reads are non-blocking now, so HID no longer paces the input thread --
+	// let it do its normal sleep.
+	return 0;
 }
