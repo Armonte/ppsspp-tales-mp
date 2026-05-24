@@ -68,12 +68,14 @@ bool MipsAssembleOpcode(std::string_view line, DebugInterface *cpu, u32 address,
 		g_symbolMap->GetLabels(args.labels);
 	}
 
-	// Auto-resolve `pos_0xXXXXXXXX` tokens as literal addresses. The disasm
-	// "Copy as CWcheat" / branch renderer emits `pos_0xAABBCCDD` for targets
-	// that don't have a real label; this lets the assembler accept that text
-	// without choking on a missing symbol. If a real label by that same name
-	// already exists (added by the user), it wins — we only inject for names
-	// not already defined.
+	// Auto-resolve `pos_AABBCCDD` and `pos_0xAABBCCDD` tokens as literal
+	// addresses. The disasm "Copy as CWcheat" / branch renderer emits
+	// `pos_%08X` (no 0x prefix — e.g. `pos_08801234`) for targets that don't
+	// have a real label; this lets the assembler accept that text without
+	// choking on a missing symbol. The explicit `pos_0x...` form is also
+	// accepted so hand-typed cheats keep working. If a real label by that
+	// same name already exists (added by the user), it wins — we only inject
+	// for names not already defined.
 	{
 		std::set<std::string> existing;
 		for (const auto &l : args.labels)
@@ -82,16 +84,32 @@ bool MipsAssembleOpcode(std::string_view line, DebugInterface *cpu, u32 address,
 		const std::string s(line);
 		size_t scan = 0;
 		while (scan < s.size()) {
-			size_t hit = s.find("pos_0x", scan);
+			size_t hit = s.find("pos_", scan);
 			if (hit == std::string::npos)
 				break;
 			bool at_boundary = (hit == 0) ||
 				!(isalnum((unsigned char)s[hit - 1]) || s[hit - 1] == '_');
-			size_t hex_start = hit + 6;  // strlen("pos_0x")
+			if (!at_boundary) {
+				scan = hit + 1;
+				continue;
+			}
+			size_t hex_start = hit + 4;  // strlen("pos_")
+			bool had_0x = false;
+			if (hex_start + 2 <= s.size() && s[hex_start] == '0' &&
+					(s[hex_start + 1] == 'x' || s[hex_start + 1] == 'X')) {
+				hex_start += 2;
+				had_0x = true;
+			}
 			size_t hex_end = hex_start;
 			while (hex_end < s.size() && isxdigit((unsigned char)s[hex_end]))
 				++hex_end;
-			if (at_boundary && hex_end > hex_start) {
+			size_t hex_len = hex_end - hex_start;
+			// Accept either `pos_0x...` (any non-zero hex length) or the
+			// auto-generated `pos_XXXXXXXX` (exactly 8 hex digits). Avoid
+			// grabbing `pos_foo` (no hex) or `pos_a` (a likely user label).
+			bool is_raw_addr_form = (!had_0x && hex_len == 8);
+			bool is_pos_0x_form = (had_0x && hex_len > 0);
+			if (is_raw_addr_form || is_pos_0x_form) {
 				std::string name = s.substr(hit, hex_end - hit);
 				if (existing.find(name) == existing.end()) {
 					uint64_t value = 0;
