@@ -1231,13 +1231,21 @@ bool CtrlWatchList::HasWatchChanged(int pos) {
 
 // Symbol-name validity check shared with the disasm-view "Add Symbol Here"
 // flow (CtrlDisAsmView.cpp). Keep these two in sync — the rules exist so
-// the assembler can disambiguate `0x...` and `pos_0x...` raw-address tokens
-// from real identifiers without ambiguity.
+// the assembler can disambiguate `0x...`, `pos_0x...`, and the auto-generated
+// `pos_XXXXXXXX` (8 hex digits, from `pos_%08X`) raw-address tokens from real
+// identifiers without ambiguity.
 static bool IsValidUserSymbolName(const std::string &name) {
 	if (name.empty()) return false;
 	if (isdigit((unsigned char)name[0])) return false;
 	if (name.size() >= 2 && name[0] == '0' && (name[1] == 'x' || name[1] == 'X')) return false;
 	if (name.size() >= 6 && name.compare(0, 6, "pos_0x") == 0) return false;
+	if (name.size() == 12 && name.compare(0, 4, "pos_") == 0) {
+		bool all_hex = true;
+		for (size_t i = 4; i < 12; ++i) {
+			if (!isxdigit((unsigned char)name[i])) { all_hex = false; break; }
+		}
+		if (all_hex) return false;
+	}
 	for (char c : name) {
 		if (!isalnum((unsigned char)c) && c != '_') return false;
 	}
@@ -1343,7 +1351,7 @@ void CtrlUserSymbolList::Edit(int pos) {
 	}
 	if (!IsValidUserSymbolName(newName)) {
 		MessageBox(GetHandle(),
-			L"Invalid name. Alphanumerics + underscore, no leading digit, can't begin with 0x or pos_0x.",
+			L"Invalid name. Alphanumerics + underscore, no leading digit, no 0x prefix, and can't match pos_XXXXXXXX or pos_0x... (reserved for raw addresses).",
 			L"Edit Symbol", MB_OK | MB_ICONWARNING);
 		return;
 	}
@@ -1387,7 +1395,7 @@ void CtrlUserSymbolList::AddNew() {
 	}
 	if (!IsValidUserSymbolName(name)) {
 		MessageBox(GetHandle(),
-			L"Invalid name. Alphanumerics + underscore, no leading digit, can't begin with 0x or pos_0x.",
+			L"Invalid name. Alphanumerics + underscore, no leading digit, no 0x prefix, and can't match pos_XXXXXXXX or pos_0x... (reserved for raw addresses).",
 			L"Add Symbol", MB_OK | MB_ICONWARNING);
 		return;
 	}

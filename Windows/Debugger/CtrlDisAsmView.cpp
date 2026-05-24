@@ -1072,7 +1072,9 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 				// Name rules (so the assembler can disambiguate raw-address syntax):
 				//   - alphanumeric + underscore only
 				//   - can't start with a digit
-				//   - can't start with "0x" or "pos_0x" (reserved by raw-addr parse)
+				//   - can't start with "0x" (reserved by raw-addr parse)
+				//   - can't match the auto-generated forms `pos_XXXXXXXX`
+				//     (8 hex digits) or `pos_0x...` — see MIPSAsm.cpp
 				char defaultName[64];
 				snprintf(defaultName, sizeof(defaultName), "label_%08X", curAddress);
 				std::string newName;
@@ -1088,12 +1090,19 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 				if (isdigit((unsigned char)newName[0])) bad = true;
 				if (newName.size() >= 2 && newName[0] == '0' && (newName[1] == 'x' || newName[1] == 'X')) bad = true;
 				if (newName.size() >= 6 && newName.compare(0, 6, "pos_0x") == 0) bad = true;
+				if (newName.size() == 12 && newName.compare(0, 4, "pos_") == 0) {
+					bool all_hex = true;
+					for (size_t i = 4; i < 12; ++i) {
+						if (!isxdigit((unsigned char)newName[i])) { all_hex = false; break; }
+					}
+					if (all_hex) bad = true;
+				}
 				for (char c : newName) {
 					if (!isalnum((unsigned char)c) && c != '_') { bad = true; break; }
 				}
 				if (bad) {
 					MessageBox(wnd,
-						L"Invalid symbol name. Use alphanumerics + underscore, can't start with a digit, can't begin with 0x or pos_0x.",
+						L"Invalid symbol name. Use alphanumerics + underscore, can't start with a digit or 0x, and can't match pos_XXXXXXXX / pos_0x... (reserved for raw addresses).",
 						L"Add Symbol", MB_OK | MB_ICONWARNING);
 					break;
 				}
