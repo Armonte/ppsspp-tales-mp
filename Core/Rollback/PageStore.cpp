@@ -39,8 +39,15 @@ void PageStore::FreeSlot(uint32_t slot) {
 	storedVersions_--;
 }
 
+void PageStore::ReleaseAliases() {
+	for (const Alias &alias : aliases_)
+		Memory::ReleaseWritableAlias(alias.ptr, alias.guestAddress, alias.size);
+	aliases_.clear();
+}
+
 void PageStore::Reset(bool trackWrites, bool validate) {
 	tracker_.Disarm();
+	ReleaseAliases();
 	validate_ = validate;
 	missedPages_ = 0;
 	pages_.clear();
@@ -58,10 +65,16 @@ void PageStore::Reset(bool trackWrites, bool validate) {
 	};
 	for (const Region &r : regions) {
 		uint8_t *base = Memory::GetPointerWriteUnchecked(r.addr);
+		uint8_t *writeBase = trackWrites ? Memory::CreateWritableAlias(r.addr, r.size) : nullptr;
+		if (writeBase)
+			aliases_.push_back(Alias{ writeBase, r.addr, r.size });
+		else
+			writeBase = base;
 		for (uint32_t off = 0; off < r.size; off += kPageSize) {
 			Page page;
 			page.addr = r.addr + off;
 			page.mem = base + off;
+			page.writeMem = writeBase + off;
 			page.hash = HashPage(page.mem);
 			const uint32_t slot = AllocSlot();
 			memcpy(SlotData(slot), page.mem, kPageSize);
@@ -146,15 +159,13 @@ bool PageStore::Load(int frame) {
 				continue;
 			}
 			if (HashPage(page.mem) != target.hash) {
-				memcpy(page.mem, SlotData(target.slot), kPageSize);
+				// Through the unprotected alias: no fault, and the page isn't dirty (it matches its version).
+				memcpy(page.writeMem, SlotData(target.slot), kPageSize);
 				restored_.push_back(page.addr);
 				lastLoadedPages_++;
 			}
 			page.hash = target.hash;
 		}
-		// Our own writes just now faulted too; the pages match their versions, so they aren't dirty.
-		dirtyScratch_.clear();
-		tracker_.TakeDirty(&dirtyScratch_);
 		if (!ok)
 			ERROR_LOG(Log::SaveState, "Rollback: page store can't go back to frame %d (trimmed)", frame);
 		return ok;

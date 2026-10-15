@@ -241,6 +241,23 @@ std::vector<MappedView> GetMappedViews() {
 	return result;
 }
 
+u8 *CreateWritableAlias(u32 guestAddress, u32 size) {
+	for (const MappedView &view : GetMappedViews()) {
+		if (view.guestAddress == guestAddress)
+			return (u8 *)g_arena.CreateView((s64)view.arenaOffset, size, nullptr);
+	}
+	return nullptr;
+}
+
+void ReleaseWritableAlias(u8 *alias, u32 guestAddress, u32 size) {
+	for (const MappedView &view : GetMappedViews()) {
+		if (view.guestAddress == guestAddress) {
+			g_arena.ReleaseView((s64)view.arenaOffset, alias, size);
+			return;
+		}
+	}
+}
+
 static bool Memory_TryBase(MemMapSetupFlags flags) {
 	// OK, we know where to find free space. Now grab it!
 	// We just mimic the popular BAT setup.

@@ -207,6 +207,10 @@ struct MappedView {
 	size_t arenaOffset;
 };
 std::vector<MappedView> GetMappedViews();
+// A second, never write-protected mapping of the memory a view shows (RAM or VRAM), so the rollback page store can
+// restore pages without tripping its own write tracking. Null on failure.
+u8 *CreateWritableAlias(u32 guestAddress, u32 size);
+void ReleaseWritableAlias(u8 *alias, u32 guestAddress, u32 size);
 
 // False when shutdown has already been called.
 bool IsActive();

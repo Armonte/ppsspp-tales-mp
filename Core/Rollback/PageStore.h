@@ -58,6 +58,7 @@ private:
 	struct Page {
 		uint32_t addr;  // guest address
 		uint8_t *mem;  // live memory
+		uint8_t *writeMem;  // the same memory through a mapping the tracker doesn't protect (or mem)
 		uint64_t hash;  // hash of the content as of the last Save/Load
 		std::vector<Version> versions;  // ascending frame
 	};
@@ -73,6 +74,18 @@ private:
 	std::vector<uint32_t> restored_;
 	std::vector<uint32_t> dirtyScratch_;
 	DirtyTracker tracker_;
+	struct Alias {
+		uint8_t *ptr;
+		uint32_t guestAddress;
+		uint32_t size;
+	};
+	std::vector<Alias> aliases_;
+	void ReleaseAliases();
+
+public:
+	~PageStore() { tracker_.Disarm(); ReleaseAliases(); }
+
+private:
 	bool validate_ = false;
 	uint64_t missedPages_ = 0;
 
