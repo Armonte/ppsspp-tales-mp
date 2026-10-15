@@ -671,6 +671,8 @@ add_library(Core STATIC
 	Replay.cpp
 	Replay.h
 	Rollback/Lockdown.cpp
+	Rollback/DirtyTracker.cpp
+	Rollback/DirtyTracker.h
 	Rollback/Lockdown.h
 	Rollback/NetplaySession.cpp
 	Rollback/NetplaySession.h
@@ -678,6 +680,8 @@ add_library(Core STATIC
 	Rollback/NetplayState.h
 	Rollback/PageStore.cpp
 	Rollback/PageStore.h
+	Rollback/Profile.cpp
+	Rollback/Profile.h
 	SaveState.cpp
 	SaveState.h
 	SaveStateRewind.cpp

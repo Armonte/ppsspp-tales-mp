@@ -206,6 +206,8 @@ struct CommandLineOptions {
 	std::optional<int> rollbackStart;
 	std::optional<std::string> rollbackDiag;
 	std::optional<bool> rollbackFullStates;
+	std::optional<bool> rollbackHashPages;
+	std::optional<bool> rollbackValidatePages;
 
 	std::optional<std::string> screenshotFilename;
 	std::optional<std::string> screenshotFilenameSave;

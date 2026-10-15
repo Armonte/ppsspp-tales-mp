@@ -34,6 +34,7 @@
 #include "Common/Data/Text/I18n.h"
 #include "Common/Data/Text/StringWriter.h"
 
+#include "Core/Rollback/Lockdown.h"
 #include "Core/Config.h"
 #include "Core/Core.h"
 #include "Core/HLE/HLE.h"
@@ -322,7 +323,10 @@ void PSPModule::DoState(PointerWrap &p) {
 		TerminateLoadedCString(p, sym.moduleName);
 	}
 
-	if (p.mode == p.MODE_READ) {
+	if (p.mode == p.MODE_READ && Rollback::RollbackLoadRestoredPages()) {
+		// A rollback load within one session: syscall ids can't have changed, and the import stubs are in the RAM
+		// the page store restored. Keep the imports as saved (KernelModuleDoState may skip re-importing).
+	} else if (p.mode == p.MODE_READ) {
 		// On load state, we re-examine in case our syscall ids changed.
 		if (libstub != 0) {
 			importedFuncs.clear();
@@ -617,6 +621,8 @@ void __KernelModuleDoState(PointerWrap &p) {
 	// TODO: Only needed during read, right?
 	__KernelRestoreActionType(actionAfterModule, AfterModuleEntryCall::Create);
 
+	// Rollback loads: the modules before the load, to tell whether anything needs relinking.
+	const std::set<SceUID> modulesBeforeLoad = Rollback::RollbackLoadRestoredPages() ? loadedModules : std::set<SceUID>();
 	if (s >= 2) {
 		Do(p, loadedModules);
 	}
@@ -663,8 +669,33 @@ void __KernelModuleDoState(PointerWrap &p) {
 		g_loadCoreCB = 0;
 	}
 
+	if (p.mode == p.MODE_READ && Rollback::RollbackLoadRestoredPages() && loadedModules == modulesBeforeLoad) {
+		// A rollback load that kept every module and restored no page of their code: the imports, the function
+		// hashes and the replacement hooks from before the load are still exactly right. Rebuilding them costs
+		// about 10 ms, more than everything else in a rollback load.
+		bool codeRestored = false;
+		u32 error;
+		for (SceUID moduleId : loadedModules) {
+			PSPModule *module = kernelObjects.Get<PSPModule>(moduleId, error);
+			if (!module)
+				continue;
+			const u32 start = module->textStart ? module->textStart : (u32)module->nm.text_addr;
+			const u32 end = module->textEnd ? module->textEnd : (u32)(module->nm.text_addr + module->nm.text_size);
+			if (Rollback::RollbackLoadRestoredRange(start, end)) {
+				codeRestored = true;
+				break;
+			}
+		}
+		if (!codeRestored)
+			return;
+	}
+
 	if (p.mode == p.MODE_READ) {
 		u32 error;
+		if (Rollback::RollbackLoadRestoredPages()) {
+			// SaveStart left the hooks in place for the fast path above; this path rebuilds them.
+			RestoreReplacedInstructions(0, 0xFFFFFFFF);
+		}
 		// We process these late, since they depend on loadedModules for interlinking.
 		for (SceUID moduleId : loadedModules) {
 			PSPModule *module = kernelObjects.Get<PSPModule>(moduleId, error);

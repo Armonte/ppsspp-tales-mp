@@ -39,7 +39,10 @@ void PageStore::FreeSlot(uint32_t slot) {
 	storedVersions_--;
 }
 
-void PageStore::Reset() {
+void PageStore::Reset(bool trackWrites, bool validate) {
+	tracker_.Disarm();
+	validate_ = validate;
+	missedPages_ = 0;
 	pages_.clear();
 	slotData_.clear();
 	freeSlots_.clear();
@@ -57,6 +60,7 @@ void PageStore::Reset() {
 		uint8_t *base = Memory::GetPointerWriteUnchecked(r.addr);
 		for (uint32_t off = 0; off < r.size; off += kPageSize) {
 			Page page;
+			page.addr = r.addr + off;
 			page.mem = base + off;
 			page.hash = HashPage(page.mem);
 			const uint32_t slot = AllocSlot();
@@ -65,25 +69,51 @@ void PageStore::Reset() {
 			pages_.push_back(std::move(page));
 		}
 	}
-	INFO_LOG(Log::SaveState, "Rollback: page store tracks %zu pages (%zu KiB)", pages_.size(), pages_.size() * kPageSize / 1024);
+	if (trackWrites && !tracker_.Arm())
+		WARN_LOG(Log::SaveState, "Rollback: write tracking unavailable, hashing pages instead");
+	INFO_LOG(Log::SaveState, "Rollback: page store tracks %zu pages (%zu KiB), %s", pages_.size(), pages_.size() * kPageSize / 1024,
+		tracker_.Armed() ? "write faults" : "hashing");
+}
+
+bool PageStore::SavePage(Page &page, int frame) {
+	const uint64_t h = HashPage(page.mem);
+	if (h == page.hash)
+		return false;
+	if (page.versions.back().frame == frame) {
+		// Saved twice without a load in between: the newer content wins.
+		page.versions.back().hash = h;
+		memcpy(SlotData(page.versions.back().slot), page.mem, kPageSize);
+	} else {
+		const uint32_t slot = AllocSlot();
+		memcpy(SlotData(slot), page.mem, kPageSize);
+		page.versions.push_back(Version{ frame, h, slot });
+	}
+	page.hash = h;
+	return true;
 }
 
 uint64_t PageStore::Save(int frame) {
 	lastSavedPages_ = 0;
-	for (Page &page : pages_) {
-		const uint64_t h = HashPage(page.mem);
-		if (h != page.hash) {
-			if (page.versions.back().frame == frame) {
-				// Saved twice without a load in between: the newer content wins.
-				page.versions.back().hash = h;
-				memcpy(SlotData(page.versions.back().slot), page.mem, kPageSize);
-			} else {
-				const uint32_t slot = AllocSlot();
-				memcpy(SlotData(slot), page.mem, kPageSize);
-				page.versions.push_back(Version{ frame, h, slot });
+	if (tracker_.Armed()) {
+		dirtyScratch_.clear();
+		tracker_.TakeDirty(&dirtyScratch_);
+		for (uint32_t index : dirtyScratch_) {
+			if (SavePage(pages_[index], frame))
+				lastSavedPages_++;
+		}
+		if (validate_) {
+			// Anything still different was written without a fault: a view or a writer the tracker doesn't see.
+			for (Page &page : pages_) {
+				if (SavePage(page, frame)) {
+					if (missedPages_++ < 16)
+						ERROR_LOG(Log::SaveState, "Rollback: page %08x changed without a write fault (frame %d)", page.addr, frame);
+				}
 			}
-			page.hash = h;
-			lastSavedPages_++;
+		}
+	} else {
+		for (Page &page : pages_) {
+			if (SavePage(page, frame))
+				lastSavedPages_++;
 		}
 	}
 	hashScratch_.resize(pages_.size());
@@ -94,7 +124,41 @@ uint64_t PageStore::Save(int frame) {
 
 bool PageStore::Load(int frame) {
 	lastLoadedPages_ = 0;
+	restored_.clear();
 	bool ok = true;
+	if (tracker_.Armed()) {
+		// Candidates: pages written since the last save, and pages with versions after frame.
+		dirtyScratch_.clear();
+		tracker_.TakeDirty(&dirtyScratch_);
+		for (size_t i = 0; i < pages_.size(); i++) {
+			if (pages_[i].versions.back().frame > frame)
+				dirtyScratch_.push_back((uint32_t)i);
+		}
+		for (uint32_t index : dirtyScratch_) {
+			Page &page = pages_[index];
+			while (page.versions.size() > 1 && page.versions.back().frame > frame) {
+				FreeSlot(page.versions.back().slot);
+				page.versions.pop_back();
+			}
+			const Version &target = page.versions.back();
+			if (target.frame > frame) {
+				ok = false;
+				continue;
+			}
+			if (HashPage(page.mem) != target.hash) {
+				memcpy(page.mem, SlotData(target.slot), kPageSize);
+				restored_.push_back(page.addr);
+				lastLoadedPages_++;
+			}
+			page.hash = target.hash;
+		}
+		// Our own writes just now faulted too; the pages match their versions, so they aren't dirty.
+		dirtyScratch_.clear();
+		tracker_.TakeDirty(&dirtyScratch_);
+		if (!ok)
+			ERROR_LOG(Log::SaveState, "Rollback: page store can't go back to frame %d (trimmed)", frame);
+		return ok;
+	}
 	for (Page &page : pages_) {
 		while (page.versions.size() > 1 && page.versions.back().frame > frame) {
 			FreeSlot(page.versions.back().slot);
@@ -109,6 +173,7 @@ bool PageStore::Load(int frame) {
 		// Hash the live page too: it may have changed since the last save.
 		if (HashPage(page.mem) != target.hash) {
 			memcpy(page.mem, SlotData(target.slot), kPageSize);
+			restored_.push_back(page.addr);
 			lastLoadedPages_++;
 		}
 		page.hash = target.hash;

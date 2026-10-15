@@ -228,6 +228,19 @@ static size_t ViewSpan(MemMapSetupFlags flags) {
 }
 #endif
 
+// Arena offset of each view, recorded when it's mapped (see GetMappedViews).
+
+std::vector<MappedView> GetMappedViews() {
+	std::vector<MappedView> result;
+	for (int i = 0; i < ARRAY_SIZE(views); i++) {
+		const MemoryView &view = views[i];
+		if (view.size == 0 || !view.out_ptr || !*view.out_ptr)
+			continue;
+		result.push_back(MappedView{ *view.out_ptr, view.virtual_address, view.size, viewPositions[i] });
+	}
+	return result;
+}
+
 static bool Memory_TryBase(MemMapSetupFlags flags) {
 	// OK, we know where to find free space. Now grab it!
 	// We just mimic the popular BAT setup.

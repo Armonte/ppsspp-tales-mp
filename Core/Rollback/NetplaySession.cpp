@@ -11,6 +11,7 @@
 #include "Core/HW/Display.h"
 #include "Core/Rollback/Lockdown.h"
 #include "Core/Rollback/NetplayState.h"
+#include "Core/Rollback/Profile.h"
 #include "Core/System.h"
 
 namespace Rollback {
@@ -82,6 +83,11 @@ void UpdateStats(Session &s) {
 	g_stats.lastSavedPages = s.state.Pages().LastSavedPages();
 	g_stats.lastLoadedPages = s.state.Pages().LastLoadedPages();
 	g_stats.storedPageVersions = s.state.Pages().StoredVersions();
+	g_stats.trackingWrites = s.state.Pages().TrackingWrites();
+	g_stats.pageFaults = s.state.Pages().Faults();
+	g_stats.missedPages = s.state.Pages().MissedPages();
+	g_stats.profile = ProfileSummary(s.state.Saves(), s.state.Loads());
+	g_stats.loads = s.state.Loads();
 	g_stats.diagMismatchFrame = s.state.DiagMismatchFrame();
 	g_stats.diagFirstDiff = s.state.DiagFirstDiffOffset();
 }
@@ -105,7 +111,7 @@ bool StartSession(const SessionConfig &config) {
 	const int checkDistance = config.checkDistance > 0 ? config.checkDistance : 16;
 	// Loads go back at most the check distance (stress) or the prediction window; keep a margin on top.
 	const int keepFrames = checkDistance + 8 + 32;
-	if (!s->state.Initialize(config.fullStates || !config.diagDumpDir.empty(), keepFrames)) {
+	if (!s->state.Initialize(config.fullStates, keepFrames, config.trackWrites, config.validatePages)) {
 		delete s;
 		ExitLockdown();
 		return false;

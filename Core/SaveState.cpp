@@ -42,6 +42,7 @@
 
 #include "Core/SaveState.h"
 #include "Core/Rollback/Lockdown.h"
+#include "Core/Rollback/Profile.h"
 #include "Core/Config.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -236,6 +237,10 @@ int g_screenshotFailures;
 		if (!s)
 			return;
 
+		using Rollback::ProfileScope;
+		using Rollback::ProfileStage;
+		const Rollback::ProfilePass pass = p.mode == p.MODE_READ ? Rollback::ProfilePass::Read : p.mode == p.MODE_MEASURE ? Rollback::ProfilePass::Measure : Rollback::ProfilePass::Write;
+
 		if (s >= 2) {
 			// This only increments on save, of course (once, not also in the measuring pass.)
 			// Not for rollback netplay saves: peers save different numbers of times (they roll back different
@@ -264,34 +269,43 @@ int g_screenshotFailures;
 		}
 
 		// The state may hold different code. KernelModuleDoState hooks the functions again.
+		// Rollback loads restored RAM already (the page store) and leave the hooks to KernelModuleDoState, which
+		// keeps them when no code changed.
+		const bool rollbackLoad = p.mode == p.MODE_READ && Rollback::RollbackLoadRestoredPages() != nullptr;
 		std::vector<std::pair<u32, u32>> hookedOps;
 		// The loaded modules' code is compared with the state's as it's loaded. Where it's the same,
-		// the JIT keeps its blocks, so they don't all have to be compiled again.
+		// the JIT keeps its blocks, so they don't all have to be compiled again. (Not for rollback loads:
+		// the page store restored RAM, and the JIT drops just the restored pages.)
 		Memory::RamCompare codeCompare;
-		if (p.mode == p.MODE_READ) {
+		if (p.mode == p.MODE_READ)
 			g_loadCount++;
+		if (p.mode == p.MODE_READ && !rollbackLoad) {
 			hookedOps = Replacement_GetHookedOps();
 			RestoreReplacedInstructions(0, 0xFFFFFFFF);
 			codeCompare.ranges = __KernelModuleCodeRanges();
 		}
-		Memory::DoState(p, &codeCompare);
-		if (p.mode == p.MODE_READ) {
-			Replacement_RepairStaleHookOps(hookedOps);
-			__KernelModuleSetUnchangedCodeOnLoad(codeCompare.unchanged);
-			currentMIPS->KeepJitBlocksOnNextLoad(std::move(codeCompare.unchanged));
+		{
+			ProfileScope scope(ProfileStage::Memory, pass);
+			Memory::DoState(p, rollbackLoad ? nullptr : &codeCompare);
+			if (p.mode == p.MODE_READ && !rollbackLoad) {
+				Replacement_RepairStaleHookOps(hookedOps);
+				__KernelModuleSetUnchangedCodeOnLoad(codeCompare.unchanged);
+				currentMIPS->KeepJitBlocksOnNextLoad(std::move(codeCompare.unchanged));
+			}
 		}
 
 		if (s >= 3) {
+			ProfileScope scope(ProfileStage::CoreTiming, pass);
 			CoreTiming::DoState(p);
 		}
 
-		MemoryStick_DoState(p);
-		currentMIPS->DoState(p);
-		HLEDoState(p);
-		__KernelDoState(p);
-		Achievements::DoState(p);
+		{ ProfileScope scope(ProfileStage::MemoryStick, pass); MemoryStick_DoState(p); }
+		{ ProfileScope scope(ProfileStage::MIPS, pass); currentMIPS->DoState(p); }
+		{ ProfileScope scope(ProfileStage::HLE, pass); HLEDoState(p); }
+		{ ProfileScope scope(ProfileStage::Kernel, pass); __KernelDoState(p); }
+		{ ProfileScope scope(ProfileStage::Achievements, pass); Achievements::DoState(p); }
 		// Kernel object destructors might close open files, so do the filesystem last.
-		pspFileSystem.DoState(p);
+		{ ProfileScope scope(ProfileStage::FileSystem, pass); pspFileSystem.DoState(p); }
 		if (s >= 4) {
 			MMIO::DoState(p);
 		} else if (p.mode == p.MODE_READ) {

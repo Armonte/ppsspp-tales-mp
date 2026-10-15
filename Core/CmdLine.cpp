@@ -262,6 +262,8 @@ static const CommandLineParam g_autoParams[] = {
 	{POFF(rollbackFuzz), CmdParamType::Bool, "rollback-fuzz", '\0', "Rollback stress test: feed deterministic pseudo-random input", CmdLineMode::Headless},
 	{POFF(rollbackDiag), CmdParamType::String, "rollback-diag", '\0', "Rollback stress test: dump the first mismatching re-simulated state (and its first run) into DIR", CmdLineMode::Headless},
 	{POFF(rollbackFullStates), CmdParamType::Bool, "rollback-full-states", '\0', "Rollback stress test: save full savestates instead of paged RAM/VRAM (for comparison)", CmdLineMode::Headless},
+	{POFF(rollbackHashPages), CmdParamType::Bool, "rollback-hash-pages", '\0', "Rollback stress test: find changed pages by hashing instead of write faults", CmdLineMode::Headless},
+	{POFF(rollbackValidatePages), CmdParamType::Bool, "rollback-validate-pages", '\0', "Rollback stress test: check the write tracker against hashing every page", CmdLineMode::Headless},
 	{POFF(rollbackStart), CmdParamType::Int, "rollback-start", '\0', "Rollback stress test: frames to run normally before starting it (default 300)", CmdLineMode::Headless},
 	{POFF(maxScreenshotError), CmdParamType::Double, "max-mse", '\0', "Maximum allowed MSE error for screenshot comparison", CmdLineMode::Headless},
 	{POFF(mountIso), CmdParamType::String, "mount", 'm', "Mount ISO/CSO on umd1: when booting an ELF/PBP or --vsh"},

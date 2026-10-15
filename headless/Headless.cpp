@@ -80,6 +80,7 @@
 #include "Compare.h"
 #include "Core/Rollback/Lockdown.h"
 #include "Core/Rollback/NetplaySession.h"
+#include "Core/Rollback/Profile.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
 #elif defined(SDL)
@@ -443,6 +444,8 @@ struct AutoTestOptions {
 	int rollbackStart;
 	std::string rollbackDiag;
 	bool rollbackFullStates;
+	bool rollbackHashPages;
+	bool rollbackValidatePages;
 	// What --disable-hle asked for, or 0 if it was not passed. Only an explicit request binds:
 	// sceMpeg and sceMp4 run the firmware module by default now and fall back to the HLE wherever
 	// none is installed, which must not fail every run on such a machine.
@@ -680,6 +683,8 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			rollbackConfig.fuzzInput = opt.rollbackFuzz;
 			rollbackConfig.diagDumpDir = opt.rollbackDiag;
 			rollbackConfig.fullStates = opt.rollbackFullStates;
+			rollbackConfig.trackWrites = !opt.rollbackHashPages;
+			rollbackConfig.validatePages = opt.rollbackValidatePages;
 			if (!Rollback::StartSession(rollbackConfig)) {
 				fprintf(stderr, "Rollback stress: could not start the session\n");
 				passed = false;
@@ -776,11 +781,14 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 		if (rb.desyncFrame >= 0)
 			fprintf(stderr, " desyncFrame=%d (%08x vs %08x)", rb.desyncFrame, rb.desyncLocal, rb.desyncRemote);
 		fprintf(stderr, " vblanksPerFrame=%d..%d", rb.minVblanksPerFrame, rb.maxVblanksPerFrame);
-		if (!opt.rollbackFullStates && opt.rollbackDiag.empty())
-			fprintf(stderr, " pages: lastSave=%zu lastLoad=%zu versions=%zu", rb.lastSavedPages, rb.lastLoadedPages, rb.storedPageVersions);
+		if (!opt.rollbackFullStates)
+			fprintf(stderr, " pages(%s): lastSave=%zu lastLoad=%zu versions=%zu faults=%llu missed=%llu", rb.trackingWrites ? "faults" : "hashing",
+				rb.lastSavedPages, rb.lastLoadedPages, rb.storedPageVersions, (unsigned long long)rb.pageFaults, (unsigned long long)rb.missedPages);
 		if (rb.diagMismatchFrame >= 0)
 			fprintf(stderr, " diagMismatchFrame=%d firstDiff=+%zu", rb.diagMismatchFrame, rb.diagFirstDiff);
-		fprintf(stderr, "\n");
+		fprintf(stderr, "\nRollback profile: %s\nRollback kernel load breakdown:%s\n", rb.profile.c_str(), Rollback::ProfileNamedSummary(rb.loads).c_str());
+		if (rb.missedPages)
+			passed = false;
 		if (rb.desyncFrame >= 0 || rb.saveFailures || rb.loadFailures || rb.frame == 0)
 			passed = false;
 	}
@@ -1049,6 +1057,8 @@ int main(int argc, const char* argv[]) {
 	testOptions.rollbackStart = cmdLineOptions.rollbackStart.value_or(300);
 	testOptions.rollbackDiag = cmdLineOptions.rollbackDiag.value_or("");
 	testOptions.rollbackFullStates = cmdLineOptions.rollbackFullStates.value_or(false);
+	testOptions.rollbackHashPages = cmdLineOptions.rollbackHashPages.value_or(false);
+	testOptions.rollbackValidatePages = cmdLineOptions.rollbackValidatePages.value_or(false);
 	testOptions.maxScreenshotError = cmdLineOptions.maxScreenshotError.value_or(0.0);
 	testOptions.requiredDisableHLE = cmdLineOptions.disableHLE.value_or(0);
 	testOptions.debugger = cmdLineOptions.DebuggerPort().has_value();

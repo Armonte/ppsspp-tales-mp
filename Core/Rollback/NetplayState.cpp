@@ -11,12 +11,18 @@
 #include "Common/TimeUtil.h"
 #include "Core/Debugger/MemBlockInfo.h"
 #include "Core/MemMap.h"
+#include "Core/Rollback/Lockdown.h"
+#include "Core/Rollback/Profile.h"
 #include "Core/SaveState.h"
 #include "ext/xxhash.h"
 
 namespace Rollback {
 
 namespace {
+
+using Rollback::ProfilePass;
+using Rollback::ProfileScope;
+using Rollback::ProfileStage;
 
 // The state grows a little during play (kernel objects, file handles, ...); this is the margin over the
 // measured size. A save that outgrows it fails loudly instead of corrupting GekkoNet's buffers.
@@ -42,7 +48,7 @@ struct ExcludeBulkMemory {
 
 }  // namespace
 
-bool NetplayState::Initialize(bool fullStates, int keepFrames) {
+bool NetplayState::Initialize(bool fullStates, int keepFrames, bool trackWrites, bool validatePages) {
 	fullStates_ = fullStates;
 	keepFrames_ = keepFrames;
 	size_t measured;
@@ -51,7 +57,7 @@ bool NetplayState::Initialize(bool fullStates, int keepFrames) {
 		measured = SaveState::MeasureSaveSize();
 	}
 	if (!fullStates_) {
-		pages_.Reset();
+		pages_.Reset(trackWrites, validatePages);
 		measured += sizeof(PagedHeader);
 	}
 	if (measured == 0) {
@@ -63,6 +69,7 @@ bool NetplayState::Initialize(bool fullStates, int keepFrames) {
 	highWatermark_ = 0;
 	saveMsTotal_ = loadMsTotal_ = 0.0;
 	saves_ = loads_ = 0;
+	ProfileReset();
 	INFO_LOG(Log::SaveState, "Rollback: state measured at %zu bytes, buffers are %u bytes", measured, stateSize_);
 	return true;
 }
@@ -82,7 +89,10 @@ bool NetplayState::Save(int frame, uint8_t *state, unsigned int *stateLen, unsig
 			err = SaveState::SaveToBuffer(state + sizeof(PagedHeader), stateSize_ - sizeof(PagedHeader), &saved);
 		}
 		if (err == CChunkFileReader::ERROR_NONE) {
-			header.pagesHash = pages_.Save(frame);
+			{
+				ProfileScope scope(ProfileStage::PagesSave, ProfilePass::Write);
+				header.pagesHash = pages_.Save(frame);
+			}
 			header.coreLen = (uint32_t)saved;
 			memcpy(state, &header, sizeof(header));
 			saved += sizeof(PagedHeader);
@@ -125,10 +135,15 @@ bool NetplayState::Load(int frame, const uint8_t *state, unsigned int stateLen) 
 			return false;
 		}
 		// Memory first: loading the rest can read guest memory (hooks, function hashes).
-		if (!pages_.Load(header.frame))
-			return false;
+		{
+			ProfileScope scope(ProfileStage::PagesLoad, ProfilePass::Read);
+			if (!pages_.Load(header.frame))
+				return false;
+		}
 		ExcludeBulkMemory exclude(true);
+		SetRollbackLoadRestoredPages(&pages_.LastRestoredAddresses());
 		err = SaveState::LoadFromBuffer(state + sizeof(header), header.coreLen, &errorString);
+		SetRollbackLoadRestoredPages(nullptr);
 	}
 	loadMsTotal_ += (time_now_d() - start) * 1000.0;
 	loads_++;

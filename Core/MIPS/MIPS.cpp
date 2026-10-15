@@ -31,6 +31,7 @@
 #include "Common/Math/SIMDHeaders.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/ConfigValues.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/MemMap.h"
@@ -446,7 +447,15 @@ void MIPSState::DoState(PointerWrap &p) {
 		return;
 
 	if (p.mode == p.MODE_READ) {
-		if (jit && !keepJitBlocks_.empty()) {
+		const std::vector<uint32_t> *restoredPages = Rollback::RollbackLoadRestoredPages();
+		if (restoredPages && MIPSComp::jit) {
+			// A rollback load: everything below reloads the registers, and the code only changed on the pages the
+			// load wrote back, so keep the compiled blocks and drop just those. Recreating the jit on every
+			// rollback costs more than the rest of the CPU state.
+			memset(vcmpResult, 0, sizeof(vcmpResult));
+			for (uint32_t page : *restoredPages)
+				MIPSComp::jit->InvalidateCacheAt(page, 4096);
+		} else if (jit && !keepJitBlocks_.empty()) {
 			// Blocks in code the load didn't change can stay. Queued invalidations stay too.
 			InitRegisters();
 			jit->InvalidateCacheExcept(keepJitBlocks_);

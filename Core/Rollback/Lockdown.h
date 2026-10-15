@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
 // Rollback netplay determinism lockdown.
 //
 // While a netplay session is active, every peer must reach byte-identical emulated state from the same
@@ -17,6 +20,14 @@
 namespace Rollback {
 
 bool IsLockedDown();
+
+// While a rollback load is restoring the core state: the guest addresses of the RAM/VRAM pages the page store
+// wrote back (4 KiB each). Lets loaders skip rebuilding what can't have changed (see __KernelModuleDoState).
+// Null outside a rollback load.
+const std::vector<uint32_t> *RollbackLoadRestoredPages();
+void SetRollbackLoadRestoredPages(const std::vector<uint32_t> *pages);
+// Whether any restored page overlaps [start, end).
+bool RollbackLoadRestoredRange(uint32_t start, uint32_t end);
 
 void EnterLockdown();
 void ExitLockdown();

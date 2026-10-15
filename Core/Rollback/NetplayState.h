@@ -24,7 +24,7 @@ class NetplayState {
 public:
 	// Measures the current state and fixes the buffer size GekkoNet must use. Call with the game running.
 	// keepFrames: how far back a load can go (GekkoNet's rollback window, with margin).
-	bool Initialize(bool fullStates, int keepFrames);
+	bool Initialize(bool fullStates, int keepFrames, bool trackWrites = true, bool validatePages = false);
 
 	const PageStore &Pages() const { return pages_; }
 
@@ -34,6 +34,8 @@ public:
 	// Average milliseconds per save / load since Initialize().
 	double AverageSaveMs() const { return saves_ ? saveMsTotal_ / saves_ : 0.0; }
 	double AverageLoadMs() const { return loads_ ? loadMsTotal_ / loads_ : 0.0; }
+	int Saves() const { return saves_; }
+	int Loads() const { return loads_; }
 
 	// GekkoSaveEvent: write the current state into state (capacity StateSize()), set *stateLen.
 	bool Save(int frame, uint8_t *state, unsigned int *stateLen, unsigned int *checksum);
