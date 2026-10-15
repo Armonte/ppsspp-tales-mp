@@ -27,6 +27,7 @@
 #include "Common/VR/PPSSPPVR.h"
 #include "Common/CommonTypes.h"
 #include "Common/StringUtils.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
 #include "Core/Core.h"
@@ -1144,6 +1145,10 @@ void FramebufferManagerCommon::DownloadFramebufferOnSwitch(VirtualFramebuffer *v
 }
 
 bool FramebufferManagerCommon::ShouldDownloadFramebufferColor(const VirtualFramebuffer *vfb) {
+	if (Rollback::IsLockedDown()) {
+		// See GetSkipGPUReadbackMode.
+		return false;
+	}
 	if (PSP_CoreParameter().compat.flags().ForceEnableGPUReadback) {
 		return true;
 	}
@@ -3041,6 +3046,12 @@ bool FramebufferManagerCommon::NotifyBlockTransferBefore(u32 dstBasePtr, int dst
 }
 
 SkipGPUReadbackMode FramebufferManagerCommon::GetSkipGPUReadbackMode() {
+	// Rollback netplay: what the host GPU renders must never reach emulated memory. When it's read back depends on
+	// host-side framebuffer state that loads don't restore, and the pixels on the host GPU, so peers (and a
+	// re-simulation) would diverge. Copies stay on the GPU instead.
+	if (Rollback::IsLockedDown()) {
+		return SkipGPUReadbackMode::COPY_TO_TEXTURE;
+	}
 	if (PSP_CoreParameter().compat.flags().ForceEnableGPUReadback) {
 		return SkipGPUReadbackMode::NO_SKIP;
 	} else {
@@ -3624,6 +3635,10 @@ void FramebufferManagerCommon::ReadFramebufferToMemory(VirtualFramebuffer *vfb, 
 	if (!vfb || !vfb->fbo) {
 		return;
 	}
+	if (Rollback::IsLockedDown()) {
+		// Covers the callers GetSkipGPUReadbackMode doesn't gate (see there).
+		return;
+	}
 
 	// Clamp to bufferWidth. Sometimes block transfers can cause this to hit.
 	if (x + w >= vfb->bufferWidth) {
@@ -3714,6 +3729,10 @@ void FramebufferManagerCommon::FlushBeforeCopy() {
 
 // TODO: Replace with with depal, reading the palette from the texture on the GPU directly.
 void FramebufferManagerCommon::DownloadFramebufferForClut(u32 fb_address, u32 loadBytes) {
+	if (Rollback::IsLockedDown()) {
+		// See GetSkipGPUReadbackMode.
+		return;
+	}
 	VirtualFramebuffer *vfb = GetVFBAt(fb_address);
 	// Without an fbo there's nothing to read back (ReadbackFramebuffer would read the backbuffer instead).
 	if (vfb && vfb->fb_stride != 0 && vfb->fbo) {

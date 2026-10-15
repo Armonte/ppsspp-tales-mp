@@ -31,6 +31,7 @@
 #include "Core/CoreTiming.h"
 #include "Core/Debugger/Breakpoints.h"
 #include "Core/Debugger/MemBlockInfo.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/HLE/sceKernelModule.h"  // for DescribeAddress
 #include "Core/MIPS/MIPS.h"
 #include "Common/StringUtils.h"
@@ -793,9 +794,18 @@ void MemBlockInfoShutdown() {
 }
 
 void MemBlockInfoDoState(PointerWrap &p) {
-	auto s = p.Section("MemBlockInfo", 0, 1);
+	auto s = p.Section("MemBlockInfo", 0, 2);
 	if (!s)
 		return;
+	// v2 (the same as the libretro rollback core, so its states load): a flag for "maps left out". Rollback netplay states
+	// leave them out: they're debugger metadata, not emulated state, and they don't come back the same on
+	// re-simulation (a load leaves the tags of what was recorded after the saved frame).
+	if (s >= 2) {
+		bool skipped = p.mode != PointerWrap::MODE_READ && Rollback::IsLockedDown();
+		Do(p, skipped);
+		if (skipped)
+			return;
+	}
 
 	FlushPendingMemInfo();
 	// See the comment in FindMemInfo() above.
