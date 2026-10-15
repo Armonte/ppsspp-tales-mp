@@ -78,6 +78,8 @@ void UpdateStats(Session &s) {
 	g_stats.stateHighWatermark = s.state.HighWatermark();
 	g_stats.avgSaveMs = s.state.AverageSaveMs();
 	g_stats.avgLoadMs = s.state.AverageLoadMs();
+	g_stats.diagMismatchFrame = s.state.DiagMismatchFrame();
+	g_stats.diagFirstDiff = s.state.DiagFirstDiffOffset();
 }
 
 }  // namespace
@@ -101,6 +103,9 @@ bool StartSession(const SessionConfig &config) {
 		ExitLockdown();
 		return false;
 	}
+
+	if (!config.diagDumpDir.empty())
+		s->state.EnableDiagnostics(config.diagDumpDir, (config.checkDistance > 0 ? config.checkDistance : 16) + 4);
 
 	if (!gekko_create(&s->gekko, GekkoStressSession)) {
 		ERROR_LOG(Log::System, "Rollback: gekko_create failed");

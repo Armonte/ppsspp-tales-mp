@@ -2106,6 +2106,11 @@ void GPUCommon::DoState(PointerWrap &p) {
 		}
 		recorder_.RestartAfterLoad();
 	}
+	if (s >= 8) {
+		// Where the search for the next free list starts. The list ID sceGeListEnQueue returns is game-visible,
+		// so a load must restore it (rollback netplay re-simulates from loads).
+		Do(p, nextListID);
+	}
 }
 
 void GPUCommon::InterruptStart(int listid) {

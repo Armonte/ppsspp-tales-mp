@@ -260,6 +260,7 @@ static const CommandLineParam g_autoParams[] = {
 	{POFF(frameStats), CmdParamType::Bool, "frame-stats", '\0', "Print flips per emulated second at the end of the run, counted from --state's load", CmdLineMode::Headless},
 	{POFF(rollbackStress), CmdParamType::Int, "rollback-stress", '\0', "Run a local rollback stress test with this check distance: roll back, re-simulate, compare checksums", CmdLineMode::Headless},
 	{POFF(rollbackFuzz), CmdParamType::Bool, "rollback-fuzz", '\0', "Rollback stress test: feed deterministic pseudo-random input", CmdLineMode::Headless},
+	{POFF(rollbackDiag), CmdParamType::String, "rollback-diag", '\0', "Rollback stress test: dump the first mismatching re-simulated state (and its first run) into DIR", CmdLineMode::Headless},
 	{POFF(rollbackStart), CmdParamType::Int, "rollback-start", '\0', "Rollback stress test: frames to run normally before starting it (default 300)", CmdLineMode::Headless},
 	{POFF(maxScreenshotError), CmdParamType::Double, "max-mse", '\0', "Maximum allowed MSE error for screenshot comparison", CmdLineMode::Headless},
 	{POFF(mountIso), CmdParamType::String, "mount", 'm', "Mount ISO/CSO on umd1: when booting an ELF/PBP or --vsh"},

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 // GekkoNet rollback session driving the emulated PSP.
 //
@@ -25,6 +26,8 @@ struct SessionConfig {
 	// Stress: replace the local input with a deterministic pseudo-random sequence, so rollbacks re-simulate
 	// frames with changing input.
 	bool fuzzInput = false;
+	// Diagnostics: dump the first mismatching re-simulated state and its first run into this directory.
+	std::string diagDumpDir;
 };
 
 struct SessionStats {
@@ -41,6 +44,9 @@ struct SessionStats {
 	double avgLoadMs = 0.0;
 	int saveFailures = 0;
 	int loadFailures = 0;
+	// --rollback-diag: first re-simulated frame whose state differs from its first run, and where.
+	int diagMismatchFrame = -1;
+	size_t diagFirstDiff = 0;
 };
 
 // Starts a session with the current game running. Enters the determinism lockdown.

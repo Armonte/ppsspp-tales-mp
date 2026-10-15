@@ -2,6 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <string>
+#include <vector>
 
 // Saves and loads the emulated PSP for GekkoNet's save/load events.
 //
@@ -32,7 +35,23 @@ public:
 	static unsigned int ChecksumCallback(void *user, int frame, const unsigned char *state, unsigned int stateLen);
 	static uint32_t Checksum(const uint8_t *state, size_t stateLen);
 
+	// Diagnostics: keep a copy of each frame's first save; when a later save of the same frame (a rollback
+	// re-simulation) differs, write both to <dumpDir>/rollback_desync_f<frame>_{first,resim}.bin, once.
+	void EnableDiagnostics(const std::string &dumpDir, int keepFrames);
+	// Frame of the first mismatching re-simulation, or -1.
+	int DiagMismatchFrame() const { return diagMismatchFrame_; }
+	size_t DiagFirstDiffOffset() const { return diagFirstDiff_; }
+
 private:
+	void DiagCheck(int frame, const uint8_t *state, size_t len);
+
+	bool diag_ = false;
+	std::string diagDir_;
+	int diagKeep_ = 0;
+	std::map<int, std::vector<uint8_t>> diagFirstSaves_;
+	int diagMismatchFrame_ = -1;
+	size_t diagFirstDiff_ = 0;
+
 	uint32_t stateSize_ = 0;
 	size_t highWatermark_ = 0;
 	double saveMsTotal_ = 0.0;
