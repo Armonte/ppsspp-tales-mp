@@ -41,6 +41,7 @@
 #include "Common/TimeUtil.h"
 
 #include "Core/SaveState.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/Config.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -237,7 +238,9 @@ int g_screenshotFailures;
 
 		if (s >= 2) {
 			// This only increments on save, of course (once, not also in the measuring pass.)
-			if (p.mode == p.MODE_WRITE && countsAsSave) {
+			// Not for rollback netplay saves: peers save different numbers of times (they roll back different
+			// amounts), and the count is part of the state they compare.
+			if (p.mode == p.MODE_WRITE && countsAsSave && !Rollback::IsLockedDown()) {
 				++saveStateGeneration;
 			}
 			Do(p, saveStateGeneration);

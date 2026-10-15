@@ -10,6 +10,7 @@
 #include "Common/StringUtils.h"
 #include "Common/TimeUtil.h"
 #include "Core/Debugger/MemBlockInfo.h"
+#include "Core/MemMap.h"
 #include "Core/SaveState.h"
 #include "ext/xxhash.h"
 
@@ -22,10 +23,37 @@ namespace {
 constexpr size_t kStateHeadroom = 4 * 1024 * 1024;
 constexpr size_t kStateAlign = 1024 * 1024;
 
+// Start of a paged rollback state (RAM/VRAM in the PageStore).
+struct PagedHeader {
+	char magic[4];
+	int32_t frame;
+	uint64_t pagesHash;
+	uint32_t coreLen;
+	uint32_t pad;
+};
+constexpr char kPagedMagic[4] = { 'P', 'R', 'B', '1' };
+
+// Leaves RAM and VRAM out of the savestate while alive.
+struct ExcludeBulkMemory {
+	explicit ExcludeBulkMemory(bool exclude) : exclude_(exclude) { if (exclude_) Memory::SetStateExcludesBulkMemory(true); }
+	~ExcludeBulkMemory() { if (exclude_) Memory::SetStateExcludesBulkMemory(false); }
+	bool exclude_;
+};
+
 }  // namespace
 
-bool NetplayState::Initialize() {
-	const size_t measured = SaveState::MeasureSaveSize();
+bool NetplayState::Initialize(bool fullStates, int keepFrames) {
+	fullStates_ = fullStates;
+	keepFrames_ = keepFrames;
+	size_t measured;
+	{
+		ExcludeBulkMemory exclude(!fullStates_);
+		measured = SaveState::MeasureSaveSize();
+	}
+	if (!fullStates_) {
+		pages_.Reset();
+		measured += sizeof(PagedHeader);
+	}
 	if (measured == 0) {
 		ERROR_LOG(Log::SaveState, "Rollback: could not measure the savestate size");
 		return false;
@@ -42,7 +70,25 @@ bool NetplayState::Initialize() {
 bool NetplayState::Save(int frame, uint8_t *state, unsigned int *stateLen, unsigned int *checksum) {
 	const double start = time_now_d();
 	size_t saved = 0;
-	const auto err = SaveState::SaveToBuffer(state, stateSize_, &saved);
+	CChunkFileReader::Error err;
+	if (fullStates_) {
+		err = SaveState::SaveToBuffer(state, stateSize_, &saved);
+	} else {
+		PagedHeader header{};
+		memcpy(header.magic, kPagedMagic, sizeof(kPagedMagic));
+		header.frame = frame;
+		{
+			ExcludeBulkMemory exclude(true);
+			err = SaveState::SaveToBuffer(state + sizeof(PagedHeader), stateSize_ - sizeof(PagedHeader), &saved);
+		}
+		if (err == CChunkFileReader::ERROR_NONE) {
+			header.pagesHash = pages_.Save(frame);
+			header.coreLen = (uint32_t)saved;
+			memcpy(state, &header, sizeof(header));
+			saved += sizeof(PagedHeader);
+			pages_.Trim(frame - keepFrames_);
+		}
+	}
 	saveMsTotal_ += (time_now_d() - start) * 1000.0;
 	saves_++;
 	if (err != CChunkFileReader::ERROR_NONE) {
@@ -64,7 +110,26 @@ bool NetplayState::Save(int frame, uint8_t *state, unsigned int *stateLen, unsig
 bool NetplayState::Load(int frame, const uint8_t *state, unsigned int stateLen) {
 	const double start = time_now_d();
 	std::string errorString;
-	const auto err = SaveState::LoadFromBuffer(state, stateLen, &errorString);
+	CChunkFileReader::Error err;
+	if (fullStates_) {
+		err = SaveState::LoadFromBuffer(state, stateLen, &errorString);
+	} else {
+		PagedHeader header;
+		if (stateLen < sizeof(header)) {
+			ERROR_LOG(Log::SaveState, "Rollback: state for frame %d is too short (%u bytes)", frame, stateLen);
+			return false;
+		}
+		memcpy(&header, state, sizeof(header));
+		if (memcmp(header.magic, kPagedMagic, sizeof(kPagedMagic)) != 0 || header.coreLen > stateLen - sizeof(header)) {
+			ERROR_LOG(Log::SaveState, "Rollback: state for frame %d isn't a paged rollback state", frame);
+			return false;
+		}
+		// Memory first: loading the rest can read guest memory (hooks, function hashes).
+		if (!pages_.Load(header.frame))
+			return false;
+		ExcludeBulkMemory exclude(true);
+		err = SaveState::LoadFromBuffer(state + sizeof(header), header.coreLen, &errorString);
+	}
 	loadMsTotal_ += (time_now_d() - start) * 1000.0;
 	loads_++;
 	if (err != CChunkFileReader::ERROR_NONE) {

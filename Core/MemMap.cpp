@@ -599,6 +599,12 @@ static void DoMemoryVoid(PointerWrap &p, uint32_t start, uint32_t size, RamCompa
 	storage += size;
 }
 
+static bool g_stateExcludesBulkMemory = false;
+
+void SetStateExcludesBulkMemory(bool exclude) {
+	g_stateExcludesBulkMemory = exclude;
+}
+
 void DoState(PointerWrap &p, RamCompare *compare) {
 	auto s = p.Section("Memory", 1, 3);
 	if (!s)
@@ -652,10 +658,12 @@ void DoState(PointerWrap &p, RamCompare *compare) {
 	if (g_MemorySize != memorySizeBefore) {
 		compare = nullptr;
 	}
-	DoMemoryVoid(p, PSP_GetKernelMemoryBase(), g_MemorySize, compare);
+	if (!g_stateExcludesBulkMemory)
+		DoMemoryVoid(p, PSP_GetKernelMemoryBase(), g_MemorySize, compare);
 	p.DoMarker("RAM");
 
-	DoMemoryVoid(p, PSP_GetVidMemBase(), VRAM_SIZE);
+	if (!g_stateExcludesBulkMemory)
+		DoMemoryVoid(p, PSP_GetVidMemBase(), VRAM_SIZE);
 	p.DoMarker("VRAM");
 	DoArray(p, m_pPhysicalScratchPad, SCRATCHPAD_SIZE);
 	p.DoMarker("ScratchPad");

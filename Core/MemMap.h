@@ -195,6 +195,8 @@ struct RamCompare {
 bool Init(MemMapSetupFlags flags);
 void Shutdown();
 void DoState(PointerWrap &p, RamCompare *compare = nullptr);
+// Rollback netplay: while set, DoState leaves out RAM and VRAM (the rollback page store keeps those).
+void SetStateExcludesBulkMemory(bool exclude);
 
 // False when shutdown has already been called.
 bool IsActive();

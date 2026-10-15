@@ -27,7 +27,10 @@ struct SessionConfig {
 	// frames with changing input.
 	bool fuzzInput = false;
 	// Diagnostics: dump the first mismatching re-simulated state and its first run into this directory.
+	// Uses full savestates, so the dumps can be diffed byte for byte.
 	std::string diagDumpDir;
+	// Use full savestates instead of the paged RAM/VRAM store (slower; for comparison).
+	bool fullStates = false;
 };
 
 struct SessionStats {
@@ -42,6 +45,10 @@ struct SessionStats {
 	size_t stateHighWatermark = 0;
 	double avgSaveMs = 0.0;
 	double avgLoadMs = 0.0;
+	// Paged states: pages copied by the last save, written back by the last load, versions kept.
+	size_t lastSavedPages = 0;
+	size_t lastLoadedPages = 0;
+	size_t storedPageVersions = 0;
 	int saveFailures = 0;
 	int loadFailures = 0;
 	// --rollback-diag: first re-simulated frame whose state differs from its first run, and where.

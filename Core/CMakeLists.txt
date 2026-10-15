@@ -676,6 +676,8 @@ add_library(Core STATIC
 	Rollback/NetplaySession.h
 	Rollback/NetplayState.cpp
 	Rollback/NetplayState.h
+	Rollback/PageStore.cpp
+	Rollback/PageStore.h
 	SaveState.cpp
 	SaveState.h
 	SaveStateRewind.cpp

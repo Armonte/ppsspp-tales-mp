@@ -572,7 +572,7 @@ static void __KernelMsgPipeEndCallback(SceUID threadID, SceUID prevCallbackId) {
 	switch (waitValue) {
 	case MSGPIPE_WAIT_VALUE_SEND:
 		{
-			MsgPipeWaitingThread dummy;
+			MsgPipeWaitingThread dummy{};
 			auto result = HLEKernel::WaitEndCallback<MsgPipe, WAITTYPE_MSGPIPE, MsgPipeWaitingThread>(threadID, prevCallbackId, __KernelWaitTimeoutEvent(), __KernelCheckResumeMsgPipeSend, dummy, ko->sendWaitingThreads, ko->pausedSendWaits);
 			if (result == HLEKernel::WAIT_CB_RESUMED_WAIT) {
 				DEBUG_LOG(Log::sceKernel, "sceKernelSendMsgPipeCB: Resuming wait from callback");
@@ -585,7 +585,7 @@ static void __KernelMsgPipeEndCallback(SceUID threadID, SceUID prevCallbackId) {
 
 	case MSGPIPE_WAIT_VALUE_RECV:
 		{
-			MsgPipeWaitingThread dummy;
+			MsgPipeWaitingThread dummy{};
 			auto result = HLEKernel::WaitEndCallback<MsgPipe, WAITTYPE_MSGPIPE, MsgPipeWaitingThread>(threadID, prevCallbackId, __KernelWaitTimeoutEvent(), __KernelCheckResumeMsgPipeReceive, dummy, ko->receiveWaitingThreads, ko->pausedReceiveWaits);
 			if (result == HLEKernel::WAIT_CB_RESUMED_WAIT) {
 				DEBUG_LOG(Log::sceKernel, "sceKernelReceiveMsgPipeCB: Resuming wait from callback");

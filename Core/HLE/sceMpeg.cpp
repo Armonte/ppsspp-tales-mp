@@ -705,7 +705,8 @@ static int sceMpegRegistStream(u32 mpeg, u32 streamType, u32 streamNum)
 	}
 	// ...
 	u32 sid = streamIdGen++;
-	StreamInfo info;
+	// Zeroed, padding included: it is saved as raw bytes.
+	StreamInfo info{};
 	info.type = streamType;
 	info.num = streamNum;
 	info.sid = sid;

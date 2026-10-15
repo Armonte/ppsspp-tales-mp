@@ -442,6 +442,7 @@ struct AutoTestOptions {
 	bool rollbackFuzz;
 	int rollbackStart;
 	std::string rollbackDiag;
+	bool rollbackFullStates;
 	// What --disable-hle asked for, or 0 if it was not passed. Only an explicit request binds:
 	// sceMpeg and sceMp4 run the firmware module by default now and fall back to the HLE wherever
 	// none is installed, which must not fail every run on such a machine.
@@ -678,6 +679,7 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			rollbackConfig.checkDistance = opt.rollbackStress;
 			rollbackConfig.fuzzInput = opt.rollbackFuzz;
 			rollbackConfig.diagDumpDir = opt.rollbackDiag;
+			rollbackConfig.fullStates = opt.rollbackFullStates;
 			if (!Rollback::StartSession(rollbackConfig)) {
 				fprintf(stderr, "Rollback stress: could not start the session\n");
 				passed = false;
@@ -774,6 +776,8 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 		if (rb.desyncFrame >= 0)
 			fprintf(stderr, " desyncFrame=%d (%08x vs %08x)", rb.desyncFrame, rb.desyncLocal, rb.desyncRemote);
 		fprintf(stderr, " vblanksPerFrame=%d..%d", rb.minVblanksPerFrame, rb.maxVblanksPerFrame);
+		if (!opt.rollbackFullStates && opt.rollbackDiag.empty())
+			fprintf(stderr, " pages: lastSave=%zu lastLoad=%zu versions=%zu", rb.lastSavedPages, rb.lastLoadedPages, rb.storedPageVersions);
 		if (rb.diagMismatchFrame >= 0)
 			fprintf(stderr, " diagMismatchFrame=%d firstDiff=+%zu", rb.diagMismatchFrame, rb.diagFirstDiff);
 		fprintf(stderr, "\n");
@@ -1044,6 +1048,7 @@ int main(int argc, const char* argv[]) {
 	testOptions.rollbackFuzz = cmdLineOptions.rollbackFuzz.value_or(false);
 	testOptions.rollbackStart = cmdLineOptions.rollbackStart.value_or(300);
 	testOptions.rollbackDiag = cmdLineOptions.rollbackDiag.value_or("");
+	testOptions.rollbackFullStates = cmdLineOptions.rollbackFullStates.value_or(false);
 	testOptions.maxScreenshotError = cmdLineOptions.maxScreenshotError.value_or(0.0);
 	testOptions.requiredDisableHLE = cmdLineOptions.disableHLE.value_or(0);
 	testOptions.debugger = cmdLineOptions.DebuggerPort().has_value();

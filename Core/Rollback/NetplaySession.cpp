@@ -79,6 +79,9 @@ void UpdateStats(Session &s) {
 	g_stats.stateHighWatermark = s.state.HighWatermark();
 	g_stats.avgSaveMs = s.state.AverageSaveMs();
 	g_stats.avgLoadMs = s.state.AverageLoadMs();
+	g_stats.lastSavedPages = s.state.Pages().LastSavedPages();
+	g_stats.lastLoadedPages = s.state.Pages().LastLoadedPages();
+	g_stats.storedPageVersions = s.state.Pages().StoredVersions();
 	g_stats.diagMismatchFrame = s.state.DiagMismatchFrame();
 	g_stats.diagFirstDiff = s.state.DiagFirstDiffOffset();
 }
@@ -99,7 +102,10 @@ bool StartSession(const SessionConfig &config) {
 
 	Session *s = new Session();
 	s->config = config;
-	if (!s->state.Initialize()) {
+	const int checkDistance = config.checkDistance > 0 ? config.checkDistance : 16;
+	// Loads go back at most the check distance (stress) or the prediction window; keep a margin on top.
+	const int keepFrames = checkDistance + 8 + 32;
+	if (!s->state.Initialize(config.fullStates || !config.diagDumpDir.empty(), keepFrames)) {
 		delete s;
 		ExitLockdown();
 		return false;
