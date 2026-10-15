@@ -787,7 +787,7 @@ void SasInstance::ApplyWaveformEffect() {
 }
 
 void SasInstance::DoState(PointerWrap &p) {
-	auto s = p.Section("SasInstance", 1);
+	auto s = p.Section("SasInstance", 1, 2);
 	if (!s)
 		return;
 
@@ -842,6 +842,11 @@ void SasInstance::DoState(PointerWrap &p) {
 		// SetPreset() alone would leave Echo/Delay at their defaults, since those two compute
 		// their parameters from the delay/feedback we just restored.
 		reverb_.SetParams(waveformEffect.delay, waveformEffect.feedback);
+	}
+	if (s >= 2) {
+		// The reverb's delay line: without it, a load restarts the reverb tail from silence, so the output after
+		// a load differs from the original run (rollback netplay re-simulates from loads).
+		reverb_.DoState(p);
 	}
 }
 

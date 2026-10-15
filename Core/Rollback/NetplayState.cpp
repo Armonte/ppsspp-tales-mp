@@ -9,6 +9,7 @@
 #include "Common/Log.h"
 #include "Common/StringUtils.h"
 #include "Common/TimeUtil.h"
+#include "Core/Debugger/MemBlockInfo.h"
 #include "Core/SaveState.h"
 #include "ext/xxhash.h"
 
@@ -74,6 +75,9 @@ bool NetplayState::Load(int frame, const uint8_t *state, unsigned int stateLen) 
 }
 
 void NetplayState::EnableDiagnostics(const std::string &dumpDir, int keepFrames) {
+	// Record HLE writes to memory in detail, so a mismatch in RAM can name what wrote there.
+	if (!diag_)
+		MemBlockOverrideDetailed();
 	diag_ = true;
 	diagDir_ = dumpDir;
 	diagKeep_ = keepFrames;
@@ -110,6 +114,47 @@ void NetplayState::DiagCheck(int frame, const uint8_t *state, size_t len) {
 	};
 	dump("first", first.data(), first.size());
 	dump("resim", state, len);
+	LogRamWriters(first.data(), state, std::min(first.size(), len));
+}
+
+// Name the recorded writers of the RAM ranges that differ. The Memory section starts with its 16-byte title, the
+// section version, g_PSPModel, a marker and g_MemorySize; RAM (from 0x08000000) follows.
+void NetplayState::LogRamWriters(const uint8_t *a, const uint8_t *b, size_t len) {
+	static const char title[16] = "Memory";
+	const uint8_t *found = (const uint8_t *)std::search(a, a + std::min<size_t>(len, 4096), title, title + sizeof(title));
+	if (found == a + std::min<size_t>(len, 4096))
+		return;
+	const size_t marker = found - a;
+	uint32_t memSize;
+	memcpy(&memSize, a + marker + 28, sizeof(memSize));
+	const size_t ramStart = marker + 32;
+	if (ramStart + memSize > len)
+		return;
+
+	int logged = 0;
+	size_t i = ramStart;
+	while (i < ramStart + memSize && logged < 8) {
+		if (a[i] == b[i]) {
+			i++;
+			continue;
+		}
+		// Merge differences closer than 64 bytes into one range.
+		size_t end = i + 1, lastDiff = i;
+		while (end < ramStart + memSize && end - lastDiff < 64) {
+			if (a[end] != b[end])
+				lastDiff = end;
+			end++;
+		}
+		const uint32_t addr = 0x08000000 + (uint32_t)(i - ramStart);
+		const uint32_t size = (uint32_t)(lastDiff + 1 - i);
+		std::string writers;
+		for (const MemBlockInfo &info : FindMemInfoByFlag(MemBlockFlags::WRITE, addr, size)) {
+			writers += StringFromFormat(" [%s pc=%08x %08x+%u]", info.tag.c_str(), info.pc, info.start, info.size);
+		}
+		ERROR_LOG(Log::SaveState, "Rollback diag: RAM %08x..%08x differs, writers:%s", addr, addr + size, writers.empty() ? " (none recorded: CPU stores)" : writers.c_str());
+		logged++;
+		i = lastDiff + 1;
+	}
 }
 
 uint32_t NetplayState::Checksum(const uint8_t *state, size_t stateLen) {

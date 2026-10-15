@@ -44,6 +44,7 @@ public:
 
 private:
 	void DiagCheck(int frame, const uint8_t *state, size_t len);
+	void LogRamWriters(const uint8_t *a, const uint8_t *b, size_t len);
 
 	bool diag_ = false;
 	std::string diagDir_;

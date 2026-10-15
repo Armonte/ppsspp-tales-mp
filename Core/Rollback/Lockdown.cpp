@@ -16,7 +16,6 @@ struct SavedSettings {
 	bool bSaveNewTextures;
 	int iFrameSkip;
 	bool bAutoFrameSkip;
-	bool bRenderDuplicateFrames;
 	bool bEnableWlan;
 };
 SavedSettings g_saved;
@@ -35,7 +34,6 @@ void EnterLockdown() {
 	g_saved.bSaveNewTextures = g_Config.bSaveNewTextures;
 	g_saved.iFrameSkip = g_Config.iFrameSkip;
 	g_saved.bAutoFrameSkip = g_Config.bAutoFrameSkip;
-	g_saved.bRenderDuplicateFrames = g_Config.bRenderDuplicateFrames;
 	g_saved.bEnableWlan = g_Config.bEnableWlan;
 
 	// SAS mixing on its own thread finishes at host-dependent times.
@@ -43,9 +41,9 @@ void EnterLockdown() {
 	// Texture dumping writes files from host threads while the game runs.
 	g_Config.bSaveNewTextures = false;
 	// Frame skipping depends on host speed. Rollback re-simulation skips rendering on its own.
+	// (sceDisplay ends a host frame at every vblank while locked down, see __DisplayFlip.)
 	g_Config.iFrameSkip = 0;
 	g_Config.bAutoFrameSkip = false;
-	g_Config.bRenderDuplicateFrames = false;
 	// Ad hoc networking talks to the real network.
 	g_Config.bEnableWlan = false;
 
@@ -65,7 +63,6 @@ void ExitLockdown() {
 	g_Config.bSaveNewTextures = g_saved.bSaveNewTextures;
 	g_Config.iFrameSkip = g_saved.iFrameSkip;
 	g_Config.bAutoFrameSkip = g_saved.bAutoFrameSkip;
-	g_Config.bRenderDuplicateFrames = g_saved.bRenderDuplicateFrames;
 	g_Config.bEnableWlan = g_saved.bEnableWlan;
 
 	g_lockedDown = false;

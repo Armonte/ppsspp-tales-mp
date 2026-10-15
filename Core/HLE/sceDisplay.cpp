@@ -47,6 +47,7 @@
 #include "Core/HLE/ErrorCodes.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/sceDisplay.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceNet.h"
 #include "Core/HLE/scePower.h"
@@ -671,7 +672,11 @@ void __DisplayFlip(int cyclesLate) {
 
 	Draw::DrawContext *draw = gpu->GetDrawContext();
 
-	bool needFlip = fbDirty || noRecentFlip || postEffectRequiresFlip;
+	// Rollback netplay: every vblank ends a host frame, flipped or not, so a netplay frame is always one vblank
+	// (fixed 59.94 Hz pacing and one input sample each). Otherwise a game that draws at 30 fps, or holds a frame,
+	// covers several vblanks per host frame and runs fast in a frontend that runs one frame per refresh.
+	const bool frameEveryVblank = Rollback::IsLockedDown();
+	bool needFlip = fbDirty || noRecentFlip || postEffectRequiresFlip || frameEveryVblank;
 	if (!needFlip) {
 		// Okay, there's no new frame to draw, game might be sitting in a static loading screen
 		// or similar, and not long enough to trigger noRecentFlip. But audio may be playing, so we need to time still.
@@ -713,7 +718,7 @@ void __DisplayFlip(int cyclesLate) {
 
 	bool nextFrame = false;
 
-	if (fbReallyDirty || noRecentFlip || postEffectRequiresFlip) {
+	if (fbReallyDirty || noRecentFlip || postEffectRequiresFlip || frameEveryVblank) {
 		// Check first though, might've just quit / been paused.
 		if (!forceNoFlip) {
 			nextFrame = Core_NextFrame();

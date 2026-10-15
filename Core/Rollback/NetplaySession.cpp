@@ -8,6 +8,7 @@
 #include "Common/Log.h"
 #include "Core/Core.h"
 #include "Core/HLE/sceCtrl.h"
+#include "Core/HW/Display.h"
 #include "Core/Rollback/Lockdown.h"
 #include "Core/Rollback/NetplayState.h"
 #include "Core/System.h"
@@ -226,15 +227,23 @@ void RunSessionFrame() {
 				coreState = CORE_RUNNING_CPU;
 			const NetInput *inputs = (const NetInput *)e->data.adv.inputs;
 			ApplyInput(inputs[0]);
+			const int vcountBefore = __DisplayGetVCount();
 			// One advance is exactly one PSP frame: keep running until the frame ends (or the core stops).
 			do {
 				PSP_RunLoopWhileState();
 			} while (coreState == CORE_RUNNING_CPU);
+			const int vblanks = __DisplayGetVCount() - vcountBefore;
 			advanced = true;
 			std::lock_guard<std::mutex> guard(g_statsLock);
 			g_stats.frame = e->data.adv.frame;
-			if (e->data.adv.rolling_back)
+			if (e->data.adv.rolling_back) {
 				g_stats.rollbackFrames++;
+			} else {
+				if (g_stats.maxVblanksPerFrame == 0 || vblanks < g_stats.minVblanksPerFrame)
+					g_stats.minVblanksPerFrame = vblanks;
+				if (vblanks > g_stats.maxVblanksPerFrame)
+					g_stats.maxVblanksPerFrame = vblanks;
+			}
 			break;
 		}
 		default:

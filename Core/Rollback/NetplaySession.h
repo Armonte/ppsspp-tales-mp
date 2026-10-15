@@ -45,6 +45,9 @@ struct SessionStats {
 	int saveFailures = 0;
 	int loadFailures = 0;
 	// --rollback-diag: first re-simulated frame whose state differs from its first run, and where.
+	// Vblanks per advanced (non-rollback) frame: should always be 1 under the lockdown.
+	int minVblanksPerFrame = 0;
+	int maxVblanksPerFrame = 0;
 	int diagMismatchFrame = -1;
 	size_t diagFirstDiff = 0;
 };

@@ -78,6 +78,7 @@
 #include "Common/Log/LogManager.h"
 
 #include "Compare.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/Rollback/NetplaySession.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
@@ -484,6 +485,11 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 		coreParameter.collectDebugOutput = &output;
 	}
 
+	// A rollback session runs under the determinism lockdown, and some of it (the SAS thread, for one) only
+	// takes effect when the game boots, so enter it before booting.
+	if (opt.rollbackStress > 0)
+		Rollback::EnterLockdown();
+
 	if (!PSP_InitStart(coreParameter)) {
 		// Shouldn't really happen anymore, the errors happen later in PSP_InitUpdate.
 		fprintf(stderr, "Failed to start '%s'.\n", coreParameter.fileToStart.c_str());
@@ -767,6 +773,7 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			rb.avgSaveMs, rb.avgLoadMs, rb.saveFailures, rb.loadFailures);
 		if (rb.desyncFrame >= 0)
 			fprintf(stderr, " desyncFrame=%d (%08x vs %08x)", rb.desyncFrame, rb.desyncLocal, rb.desyncRemote);
+		fprintf(stderr, " vblanksPerFrame=%d..%d", rb.minVblanksPerFrame, rb.maxVblanksPerFrame);
 		if (rb.diagMismatchFrame >= 0)
 			fprintf(stderr, " diagMismatchFrame=%d firstDiff=+%zu", rb.diagMismatchFrame, rb.diagFirstDiff);
 		fprintf(stderr, "\n");
