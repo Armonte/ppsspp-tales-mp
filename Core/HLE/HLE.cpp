@@ -47,6 +47,7 @@
 #include "Core/HLE/sceFont.h"
 #include "Core/FileSystems/MetaFileSystem.h"
 #include "Core/HLE/HLE.h"
+#include "Core/Rollback/Trace.h"
 
 enum {
 	// Do nothing after the syscall.
@@ -1211,6 +1212,8 @@ void CallSyscallWithPC(MIPSState *mips, MIPSOpcode op, u32 pc) {
 		return;
 	}
 
+	if (Rollback::Tracing())
+		Rollback::TraceLine("sys %s pc=%08x a0=%08x a1=%08x a2=%08x", info->name ? info->name : "?", currentMIPS->pc, currentMIPS->r[MIPS_REG_A0], currentMIPS->r[MIPS_REG_A1], currentMIPS->r[MIPS_REG_A2]);
 	if (info->func) {
 		if (op == g_idleOp)
 			info->func(mips);
@@ -1224,6 +1227,8 @@ void CallSyscallWithPC(MIPSState *mips, MIPSOpcode op, u32 pc) {
 		ERROR_LOG(Log::HLE, "Unimplemented HLE function %s", info->name ? info->name : "(\?\?\?)");
 	}
 
+	if (Rollback::Tracing())
+		Rollback::TraceLine("ret v0=%08x", currentMIPS->r[MIPS_REG_V0]);
 	if (collectStats) {
 		const u32 callno = (op >> 6) & 0xFFFFF;  // 20 bits
 		const int funcnum = callno & 0xFFF;      // 12 bits

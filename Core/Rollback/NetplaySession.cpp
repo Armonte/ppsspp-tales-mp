@@ -5,7 +5,10 @@
 
 #include <gekkonet.h>
 
+#include "Common/File/FileUtil.h"
+#include "Common/File/Path.h"
 #include "Common/Log.h"
+#include "Common/StringUtils.h"
 #include "Core/Core.h"
 #include "Core/HLE/sceCtrl.h"
 #include "Core/HLE/sceDisplay.h"
@@ -14,6 +17,7 @@
 #include "Core/Rollback/NetplayState.h"
 #include "Core/Rollback/Profile.h"
 #include "Core/Rollback/TekkenDR.h"
+#include "Core/Rollback/Trace.h"
 #include "Core/System.h"
 
 namespace Rollback {
@@ -41,6 +45,9 @@ struct Session {
 	NetInput scripted[2]{};
 	// Player 2 plays through Tekken: Dark Resurrection's hidden local 2P path.
 	bool tekkenDR = false;
+	// PPSSPP_RB_TRACE_FRAME (with a diag dir): the frame to trace on every pass, and the passes so far.
+	int traceFrame = -1;
+	int tracePasses = 0;
 };
 
 std::mutex g_statsLock;
@@ -116,6 +123,8 @@ bool StartSession(const SessionConfig &config) {
 	Session *s = new Session();
 	s->config = config;
 	s->tekkenDR = IsTekkenDR();
+	if (const char *traceFrame = getenv("PPSSPP_RB_TRACE_FRAME"); traceFrame && !config.diagDumpDir.empty())
+		s->traceFrame = atoi(traceFrame);
 	for (NetInput &in : s->scripted)
 		in.analogX = in.analogY = 128;
 	const int checkDistance = config.checkDistance > 0 ? config.checkDistance : 16;
@@ -251,6 +260,9 @@ void RunSessionFrame() {
 				coreState = CORE_RUNNING_CPU;
 			const NetInput *inputs = (const NetInput *)e->data.adv.inputs;
 			ApplyInput(*s, inputs);
+			const bool trace = e->data.adv.frame == s->traceFrame;
+			if (trace)
+				TraceBegin();
 			const int vcountBefore = __DisplayGetVCount();
 			const int gameFramesBefore = __DisplayGetGameFrames();
 			// One advance is exactly one PSP frame: keep running until the frame ends (or the core stops).
@@ -258,6 +270,11 @@ void RunSessionFrame() {
 				PSP_RunLoopWhileState();
 			} while (coreState == CORE_RUNNING_CPU);
 			const int vblanks = __DisplayGetVCount() - vcountBefore;
+			if (trace) {
+				const std::string text = TraceEnd();
+				const Path path = Path(s->config.diagDumpDir) / StringFromFormat("rbtrace_f%d_%d.txt", s->traceFrame, s->tracePasses++);
+				File::WriteStringToFile(false, text, path);
+			}
 			advanced = true;
 			std::lock_guard<std::mutex> guard(g_statsLock);
 			g_stats.frame = e->data.adv.frame;

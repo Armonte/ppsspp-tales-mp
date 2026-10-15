@@ -448,7 +448,9 @@ void MIPSState::DoState(PointerWrap &p) {
 
 	if (p.mode == p.MODE_READ) {
 		const std::vector<uint32_t> *restoredPages = Rollback::RollbackLoadRestoredPages();
-		if (restoredPages && MIPSComp::jit) {
+		// PPSSPP_RB_NO_JIT_KEEP: recreate the jit on rollback loads too (to tell whether keeping it changes anything).
+		static const bool noJitKeep = getenv("PPSSPP_RB_NO_JIT_KEEP") != nullptr;
+		if (restoredPages && MIPSComp::jit && !noJitKeep) {
 			// A rollback load: everything below reloads the registers, and the code only changed on the pages the
 			// load wrote back, so keep the compiled blocks and drop just those. Recreating the jit on every
 			// rollback costs more than the rest of the CPU state.

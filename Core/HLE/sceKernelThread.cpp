@@ -51,6 +51,7 @@
 #include "Core/HLE/KernelThreadDebugInterface.h"
 #include "Core/HLE/KernelWaitHelpers.h"
 #include "Core/HLE/ThreadQueueList.h"
+#include "Core/Rollback/Trace.h"
 
 struct WaitTypeNames {
 	WaitType type;
@@ -3312,6 +3313,8 @@ ThreadWaitInfo PSPThread::getWaitInfo() const {
 }
 
 void __KernelSwitchContext(PSPThread *target, const char *reason) {
+	if (Rollback::Tracing())
+		Rollback::TraceLine("switch -> %s (%s) pc=%08x", target ? target->GetName() : "(none)", reason ? reason : "", currentMIPS->pc);
 	u32 oldPC = 0;
 	SceUID oldUID = 0;
 	const char *oldName = hleCurrentThreadName != NULL ? hleCurrentThreadName : "(none)";
