@@ -224,7 +224,18 @@ void ThreadManager::Init(int numRealCores, int numLogicalCoresPerCpu) {
 	}
 }
 
+void ThreadManager::SetInlineMode(bool inlineMode) {
+	inlineMode_ = inlineMode;
+	INFO_LOG(Log::System, "ThreadManager: inline mode %s", inlineMode ? "on" : "off");
+}
+
 void ThreadManager::EnqueueTask(Task *task) {
+	if (inlineMode_ && task->Type() != TaskType::DEDICATED_THREAD) {
+		task->Run();
+		task->Release();
+		return;
+	}
+
 	if (task->Type() == TaskType::DEDICATED_THREAD) {
 		std::thread th([=](Task *task) {
 			SetCurrentThreadName("DedicatedThreadTask");
@@ -293,6 +304,12 @@ void ThreadManager::EnqueueTask(Task *task) {
 void ThreadManager::EnqueueTaskOnThread(int threadNum, Task *task) {
 	_assert_msg_(task->Type() != TaskType::DEDICATED_THREAD, "Dedicated thread tasks can't be put on specific threads");
 
+	if (inlineMode_) {
+		task->Run();
+		task->Release();
+		return;
+	}
+
 	_assert_msg_(threadNum >= 0 && threadNum < (int)global_->threads_.size(), "Bad threadnum %d(/%d) or not initialized", threadNum, (int)global_->threads_.size());
 	TaskThreadContext *thread = global_->threads_[threadNum];
 	size_t queueIndex = (size_t)task->Priority();
@@ -305,6 +322,9 @@ void ThreadManager::EnqueueTaskOnThread(int threadNum, Task *task) {
 }
 
 int ThreadManager::GetNumLooperThreads() const {
+	// One looper in inline mode, so parallel loops run as a single in-place range.
+	if (inlineMode_)
+		return 1;
 	return numComputeThreads_;
 }
 

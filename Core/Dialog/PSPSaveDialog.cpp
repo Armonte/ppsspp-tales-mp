@@ -39,6 +39,7 @@
 #include "Core/MemMapHelpers.h"
 #include "Core/Config.h"
 #include "Core/Reporting.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/SaveState.h"
 
 static double g_lastSaveTime = -1.0;
@@ -1259,6 +1260,11 @@ void PSPSaveDialog::StartIOThread() {
 	}
 
 	ioThreadStatus = SAVEIO_PENDING;
+	if (Rollback::IsLockedDown()) {
+		// Rollback lockdown: do the IO now, so the game sees it finish at the same point on every peer.
+		ExecuteIOAction();
+		return;
+	}
 	ioThread = std::thread([this]() {
 		SetCurrentThreadName("SaveIO");
 

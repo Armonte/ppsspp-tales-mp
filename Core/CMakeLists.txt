@@ -670,6 +670,8 @@ add_library(Core STATIC
 	Reporting.h
 	Replay.cpp
 	Replay.h
+	Rollback/Lockdown.cpp
+	Rollback/Lockdown.h
 	SaveState.cpp
 	SaveState.h
 	SaveStateRewind.cpp

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 // The new threadpool.
@@ -64,6 +65,12 @@ public:
 
 	bool IsInitialized() const;
 
+	// Inline mode (rollback netplay determinism): queued tasks run synchronously on the thread that
+	// enqueues them instead of on worker threads, so their effects land at deterministic points.
+	// Dedicated-thread tasks still get their own thread.
+	void SetInlineMode(bool inlineMode);
+	bool IsInlineMode() const { return inlineMode_; }
+
 	// Parallel loops (assumed compute-limited) get one thread per logical core. We have a few extra threads too
 	// for I/O bounds tasks, that can be run concurrently with those.
 	int GetNumLooperThreads() const;
@@ -76,6 +83,7 @@ private:
 
 	int numThreads_ = 0;
 	int numComputeThreads_ = 0;
+	std::atomic<bool> inlineMode_{};
 
 	friend struct TaskThreadContext;
 };
