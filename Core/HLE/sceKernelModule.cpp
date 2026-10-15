@@ -700,6 +700,9 @@ void __KernelModuleDoState(PointerWrap &p) {
 		for (SceUID moduleId : loadedModules) {
 			PSPModule *module = kernelObjects.Get<PSPModule>(moduleId, error);
 			if (module && module->libstub != 0) {
+				// Rollback loads kept the imports as saved (see PSPModule::DoState); importing appends.
+				if (Rollback::RollbackLoadRestoredPages())
+					module->importedFuncs.clear();
 				if (!KernelImportModuleFuncs(module, nullptr, true)) {
 					ERROR_LOG(Log::Loader, "Something went wrong loading imports on load state");
 				}
