@@ -22,6 +22,7 @@
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/Math/CrossSIMD.h"
 #include "Core/MemMap.h"
+#include "Core/Rollback/Lockdown.h"
 #include "GPU/ge_constants.h"
 #include "GPU/GPUCommon.h"
 #include "GPU/GPUState.h"
@@ -284,6 +285,17 @@ void GPUStateCache::Reset() {
 
 void GPUStateCache::DoState(PointerWrap &p) {
 	auto s = p.Section("GPUStateCache", 0, 5);
+	// Fields the renderer derives while drawing. Rollback netplay states store them as zero and loads leave them
+	// alone: re-simulated frames don't draw, and nothing emulated reads them.
+	const bool skipHostDerived = Rollback::IsLockedDown();
+	auto DoHostDerived = [&](auto &value) {
+		if (skipHostDerived) {
+			std::remove_reference_t<decltype(value)> unused{};
+			Do(p, unused);
+		} else {
+			Do(p, value);
+		}
+	};
 	if (!s) {
 		// Old state, this was not versioned.
 		GPUStateCache_v0 old;
@@ -308,8 +320,8 @@ void GPUStateCache::DoState(PointerWrap &p) {
 		if (p.mode == p.MODE_READ) {
 			gstate_c.Dirty(DIRTY_TEXTURE_IMAGE | DIRTY_TEXTURE_PARAMS);
 		}
-		Do(p, textureSolidAlpha);
-		Do(p, vertexFullAlpha);
+		DoHostDerived(textureSolidAlpha);
+		DoHostDerived(vertexFullAlpha);
 		bool framebufChanged = false;  // legacy
 		Do(p, framebufChanged);
 
@@ -350,9 +362,9 @@ void GPUStateCache::DoState(PointerWrap &p) {
 
 	Do(p, morphWeights);
 
-	Do(p, curTextureWidth);
-	Do(p, curTextureHeight);
-	Do(p, actualTextureHeight);
+	DoHostDerived(curTextureWidth);
+	DoHostDerived(curTextureHeight);
+	DoHostDerived(actualTextureHeight);
 	// curTextureXOffset and curTextureYOffset don't need to be saved.  Well, the above don't either...
 
 	// previously vpWidth, vpHeight. Remove in future versions.
@@ -365,8 +377,8 @@ void GPUStateCache::DoState(PointerWrap &p) {
 		Do(p, oldDepth);
 	}
 
-	Do(p, curRTWidth);
-	Do(p, curRTHeight);
+	DoHostDerived(curRTWidth);
+	DoHostDerived(curRTHeight);
 
 	// curRTBufferWidth, curRTBufferHeight, and cutRTOffsetX don't need to be saved.
 	if (s < 5) {
