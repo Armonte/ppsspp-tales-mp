@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Linux build of the SDL3 frontend (+ headless). Sources stay on /mnt/c; build trees live on ext4 for speed.
+# Linux build of the SDL3 frontend (+ headless). The repo lives on /mnt/c; compiling straight from there is very slow
+# (every source/header read crosses the 9p bridge), so the tree is rsynced to an ext4 mirror and built from that.
 # SDL3 and SDL3_ttf are built once from their release tags into $SDL3_PREFIX (Ubuntu 24.04 ships no SDL3).
 # Usage: ./build_linux.sh [configure]
 set -euo pipefail
-SRC="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$(dirname "$0")" && pwd)"
+SRC="${PPSSPP_RB_MIRROR:-$HOME/src/ppsspp-rollback-mirror}"
 BUILD="${PPSSPP_RB_BUILD:-$HOME/build/ppsspp-rollback-linux}"
 SDL3_PREFIX="${SDL3_PREFIX:-$HOME/opt/sdl3}"
 SDL3_TAG="release-3.4.16"
@@ -23,6 +25,9 @@ fi
 if ! ls "$SDL3_PREFIX"/lib*/cmake/SDL3_ttf* "$SDL3_PREFIX"/lib/*/cmake/SDL3_ttf* >/dev/null 2>&1; then
 	build_dep SDL3_ttf https://github.com/libsdl-org/SDL_ttf.git "$SDL3_TTF_TAG"
 fi
+
+mkdir -p "$SRC"
+rsync -a --delete --exclude /.git --exclude '/out/' --exclude '.git' "$REPO/" "$SRC/"
 
 if [[ "${1:-}" == "configure" || ! -f "$BUILD/build.ninja" ]]; then
 	cmake -S "$SRC" -B "$BUILD" -G Ninja \
