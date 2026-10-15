@@ -108,6 +108,13 @@ namespace SaveState {
 	CChunkFileReader::Error SaveToRam(std::vector<u8> &state);
 	CChunkFileReader::Error LoadFromRam(std::vector<u8> &state, std::string *errorString);
 
+	// Rollback netplay: save into a caller-owned buffer of the given capacity (fails with ERROR_BAD_ALLOC if the state
+	// doesn't fit; *savedSize gets the size written), and load from a buffer.
+	CChunkFileReader::Error SaveToBuffer(u8 *buffer, size_t capacity, size_t *savedSize);
+	CChunkFileReader::Error LoadFromBuffer(const u8 *buffer, size_t size, std::string *errorString);
+	// The size a save would take right now.
+	size_t MeasureSaveSize();
+
 	// For testing / automated tests.  Runs a save state verification pass (async.)
 	// The callback runs from Process().
 	bool Verify(Callback callback = Callback());

@@ -1116,6 +1116,13 @@ else()
 	include_directories(ext/libchdr/include)
 endif()
 
+# Rollback netplay: GekkoNet (github.com/Armonte/GekkoNet, same pin as ymir-gekko).
+add_subdirectory(ext/gekkonet/GekkoLib EXCLUDE_FROM_ALL)
+if(MSVC)
+	# GekkoNet forces the static CRT; everything else here uses the dynamic one.
+	set_property(TARGET GekkoNet PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_subdirectory(GPU)
 add_subdirectory(Core)
 

@@ -80,6 +80,7 @@
 #include "UI/ControlMappingScreen.h"
 #include "UI/GameSettingsScreen.h"
 #include "UI/JitCompareScreen.h"
+#include "Core/Rollback/NetplaySession.h"
 #include "android/jni/app-android.h"
 
 
@@ -201,6 +202,23 @@ void DevMenuScreen::CreatePopupContents(UI::ViewGroup *parent) {
 		} else {
 			PSP_CoreParameter().freezeNext = true;
 		}
+	});
+
+	// Rollback fork: local stress test (roll back, re-simulate, compare checksums), with fuzzed input.
+	items->Add(new Choice(Rollback::IsSessionActive() ? "Stop rollback stress test" : "Rollback stress test"))->OnClick.Add([](UI::EventParams &e) {
+		if (Rollback::IsSessionActive()) {
+			const Rollback::SessionStats stats = Rollback::GetSessionStats();
+			Rollback::StopSession();
+			g_OSD.Show(stats.desyncFrame >= 0 ? OSDType::MESSAGE_ERROR : OSDType::MESSAGE_SUCCESS,
+				stats.desyncFrame >= 0 ? StringFromFormat("Rollback stress: non-deterministic at frame %d", stats.desyncFrame)
+					: StringFromFormat("Rollback stress: clean after %d frames (%lld re-simulated)", stats.frame, (long long)stats.rollbackFrames), 7.0f);
+			return;
+		}
+		Rollback::SessionConfig config;
+		config.role = Rollback::Role::StressTest;
+		config.fuzzInput = true;
+		if (!Rollback::StartSession(config))
+			g_OSD.Show(OSDType::MESSAGE_ERROR, "Rollback stress test could not start (see log)", 5.0f);
 	});
 
 	items->Add(new Choice(dev->T("Reset limited logging")))->OnClick.Add([](UI::EventParams &e) {

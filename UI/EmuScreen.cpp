@@ -75,6 +75,7 @@ using namespace std::placeholders;
 #include "Core/Debugger/SymbolMap.h"
 #include "Core/RetroAchievements.h"
 #include "Core/SaveState.h"
+#include "Core/Rollback/NetplaySession.h"
 #include "Core/Screenshot.h"
 #include "Core/HLE/__sceAudio.h"
 #include "Core/HW/Display.h"
@@ -1880,8 +1881,10 @@ ScreenRenderFlags EmuScreen::RunEmulation(bool skipBufferEffects) {
 	clearColor_ = 0;
 	bool blockedExecution = Achievements::IsBlockingExecution();
 	if (!blockedExecution) {
-		// We process savestates before running the frame.
-		SaveState::Process();
+		// We process savestates before running the frame. Not during a rollback session: a savestate load (or
+		// rewind) would change only this peer's state.
+		if (!Rollback::IsSessionActive())
+			SaveState::Process();
 
 		// A savestate that failed to load halfway leaves a reset as the only option. Do it before the frame
 		// draws anything: the GPU can't shut down while its pipelines are bound in the open backbuffer pass.
@@ -1910,7 +1913,7 @@ ScreenRenderFlags EmuScreen::RunEmulation(bool skipBufferEffects) {
 		// like any other, so it's banned in hardcore mode - and checked here rather than only
 		// where it's toggled, since hardcore mode can come up after the fact, once the game
 		// has been identified.
-		if (Achievements::HardcoreModeActive()) {
+		if (Achievements::HardcoreModeActive() || Rollback::IsSessionActive()) {
 			PSP_CoreParameter().freezeNext = false;
 			PSP_CoreParameter().frozen = false;
 		} else if (coreState == CORE_STEPPING_GE || coreState == CORE_RUNNING_GE) {
@@ -1929,7 +1932,11 @@ ScreenRenderFlags EmuScreen::RunEmulation(bool skipBufferEffects) {
 			}
 		}
 
-		PSP_RunLoopWhileState();
+		// Under a rollback session, GekkoNet decides which frames run (and re-runs them on rollbacks).
+		if (Rollback::IsSessionActive())
+			Rollback::RunSessionFrame();
+		else
+			PSP_RunLoopWhileState();
 
 		// Hopefully, after running, coreState is now CORE_NEXTFRAME
 		switch (coreState) {

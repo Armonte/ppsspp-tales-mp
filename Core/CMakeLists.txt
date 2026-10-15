@@ -672,6 +672,10 @@ add_library(Core STATIC
 	Replay.h
 	Rollback/Lockdown.cpp
 	Rollback/Lockdown.h
+	Rollback/NetplaySession.cpp
+	Rollback/NetplaySession.h
+	Rollback/NetplayState.cpp
+	Rollback/NetplayState.h
 	SaveState.cpp
 	SaveState.h
 	SaveStateRewind.cpp
@@ -733,7 +737,7 @@ endif()
 
 list(APPEND CoreExtraLibs armips)
 
-target_link_libraries(Core GPU Common chdr kirk cityhash sfmt19937 xbrz xxhash libdeflate rcheevos at3_standalone lua
+target_link_libraries(Core GekkoNet GPU Common chdr kirk cityhash sfmt19937 xbrz xxhash libdeflate rcheevos at3_standalone lua
 	aemu_postoffice_client ${CoreExtraLibs} ${CMAKE_DL_LIBS})
 
 # Winsock

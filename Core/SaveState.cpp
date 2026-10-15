@@ -199,6 +199,25 @@ int g_screenshotFailures;
 		return CChunkFileReader::LoadPtr(&data[0], data.size(), state, errorString);
 	}
 
+	CChunkFileReader::Error SaveToBuffer(u8 *buffer, size_t capacity, size_t *savedSize) {
+		SaveStart state;
+		u8 *saved = buffer;
+		size_t size = capacity;
+		CChunkFileReader::Error err = CChunkFileReader::MeasureAndSavePtr(state, &saved, &size);
+		*savedSize = err == CChunkFileReader::ERROR_NONE ? size : 0;
+		return err;
+	}
+
+	CChunkFileReader::Error LoadFromBuffer(const u8 *buffer, size_t size, std::string *errorString) {
+		SaveStart state;
+		return CChunkFileReader::LoadPtr(const_cast<u8 *>(buffer), size, state, errorString);
+	}
+
+	size_t MeasureSaveSize() {
+		SaveStart state;
+		return CChunkFileReader::MeasurePtr(state);
+	}
+
 	// TODO: Should this be configurable?
 	// Should only fail if the game hasn't created a framebuffer yet. Some games play video without a framebuffer,
 	// we should probably just read back memory then instead (GTA for example). But this is a really unimportant edge case,

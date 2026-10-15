@@ -113,6 +113,11 @@ static u32 emuRapidFireInterval = 5;
 // Set while a system overlay (the HOME button's quit screen) owns the controls: the game then reads
 // no buttons and centered sticks, as impose does on a PSP. Host-side peeks still see the real state.
 static std::atomic<bool> gameInputBlocked{ false };
+// Rollback netplay input. While active, the vblank sample takes the session's synced input instead of the
+// host's live input (ctrlCurrent), which the session reads separately as the local player's input.
+static bool netplayInputActive = false;
+static u32 netplayButtons = 0;
+static u8 netplayAnalog[2][2] = {};
 
 // These buttons are not affected by rapid fire (neither is analog.)
 const u32 CTRL_EMU_RAPIDFIRE_MASK = CTRL_UP | CTRL_DOWN | CTRL_LEFT | CTRL_RIGHT;
@@ -123,13 +128,20 @@ static void __CtrlUpdateLatch()
 	u64 t = CoreTiming::GetGlobalTimeUs();
 
 	u32 buttons = ctrlCurrent.buttons;
-	if (emuRapidFire && emuRapidFireToggle)
-		buttons &= CTRL_EMU_RAPIDFIRE_MASK;
+	if (netplayInputActive) {
+		buttons = netplayButtons;
+	} else {
+		if (emuRapidFire && emuRapidFireToggle)
+			buttons &= CTRL_EMU_RAPIDFIRE_MASK;
 
-	ReplayApplyCtrl(buttons, ctrlCurrent.analog, t);
+		ReplayApplyCtrl(buttons, ctrlCurrent.analog, t);
+	}
 
 	// Copy in the current data to the current buffer.
 	ctrlBufs[ctrlBuf] = ctrlCurrent;
+	if (netplayInputActive) {
+		memcpy(ctrlBufs[ctrlBuf].analog, netplayAnalog, sizeof(netplayAnalog));
+	}
 
 	if (PSP_CoreParameter().compat.flags().DaxterRotatedAnalogStick) {
 		// For some reason, Daxter rotates the analog input. See #17015
@@ -285,6 +297,22 @@ void __CtrlUpdateButtons(u32 bitsToSet, u32 bitsToClear)
 	std::lock_guard<std::mutex> guard(ctrlMutex);
 	// There's no atomic operation for this, so mutex it is.
 	ctrlCurrent.buttons = (ctrlCurrent.buttons & ~bitsToClear) | bitsToSet;
+}
+
+void __CtrlSetNetplayInput(bool active, u32 buttons, const u8 analog[2][2]) {
+	std::lock_guard<std::mutex> guard(ctrlMutex);
+	netplayInputActive = active;
+	netplayButtons = buttons & CTRL_MASK_USER;
+	if (analog) {
+		memcpy(netplayAnalog, analog, sizeof(netplayAnalog));
+	} else {
+		memset(netplayAnalog, CTRL_ANALOG_CENTER, sizeof(netplayAnalog));
+	}
+}
+
+void __CtrlPeekAnalogRaw(u8 analog[2][2]) {
+	std::lock_guard<std::mutex> guard(ctrlMutex);
+	memcpy(analog, ctrlCurrent.analog, sizeof(ctrlCurrent.analog));
 }
 
 void __CtrlSetAnalogXY(int stick, float x, float y)

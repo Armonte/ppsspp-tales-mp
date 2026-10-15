@@ -78,6 +78,7 @@
 #include "Common/Log/LogManager.h"
 
 #include "Compare.h"
+#include "Core/Rollback/NetplaySession.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
 #elif defined(SDL)
@@ -435,6 +436,10 @@ struct AutoTestOptions {
 	bool frameStats;
 	// Keep emulated time from running ahead of the wall clock (--realtime).
 	bool realtime;
+	// --rollback-stress: check distance (0 = off), fuzzed input, frames to run before starting.
+	int rollbackStress;
+	bool rollbackFuzz;
+	int rollbackStart;
 	// What --disable-hle asked for, or 0 if it was not passed. Only an explicit request binds:
 	// sceMpeg and sceMp4 run the firmware module by default now and fall back to the HLE wherever
 	// none is installed, which must not fail every run on such a machine.
@@ -562,6 +567,8 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 	double statsStart = -1.0;
 	int statsLastFlips = 0;
 	std::vector<std::pair<double, Path>> screenshotsAt = opt.screenshotsAt;
+	// --rollback-stress: completed frames so far, to know when to start the session.
+	int completedFrames = 0;
 	coreState = coreParameter.startBreak ? CORE_STEPPING_CPU : CORE_RUNNING_CPU;
 
 	// The XMB starting a game, or a game going back to it: boot that, the way the app does, and keep
@@ -658,21 +665,40 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			}
 		}
 
-		// Finer steps when input is scripted, so short presses land.
-		int blockTicks = (int)usToCycles(1000000 / (opt.presses.empty() ? 10 : 60));
-		if (opt.realtime) {
-			// Display flips are the only thing that paces headless otherwise, and a test that doesn't
-			// draw never flips, so the emulated clock would race ahead of instances it talks to.
-			blockTicks = (int)usToCycles(1000);
-			const double ahead = emulatedElapsed - (time_now_d() - startTime);
-			if (ahead > 0.001) {
-				sleep_ms((int)(std::min(ahead, 0.05) * 1000.0), "realtime");
+		if (opt.rollbackStress > 0 && !Rollback::IsSessionActive() && completedFrames == opt.rollbackStart && !g_stateLoadPending) {
+			Rollback::SessionConfig rollbackConfig;
+			rollbackConfig.role = Rollback::Role::StressTest;
+			rollbackConfig.checkDistance = opt.rollbackStress;
+			rollbackConfig.fuzzInput = opt.rollbackFuzz;
+			if (!Rollback::StartSession(rollbackConfig)) {
+				fprintf(stderr, "Rollback stress: could not start the session\n");
+				passed = false;
+				Core_Stop();
+				break;
 			}
+			fprintf(stderr, "Rollback stress: started at frame %d, check distance %d, fuzz %s\n", completedFrames, opt.rollbackStress, opt.rollbackFuzz ? "on" : "off");
 		}
-		PSP_RunLoopFor(blockTicks);
+
+		if (Rollback::IsSessionActive()) {
+			Rollback::RunSessionFrame();
+		} else {
+			// Finer steps when input is scripted, so short presses land.
+			int blockTicks = (int)usToCycles(1000000 / (opt.presses.empty() ? 10 : 60));
+			if (opt.realtime) {
+				// Display flips are the only thing that paces headless otherwise, and a test that doesn't
+				// draw never flips, so the emulated clock would race ahead of instances it talks to.
+				blockTicks = (int)usToCycles(1000);
+				const double ahead = emulatedElapsed - (time_now_d() - startTime);
+				if (ahead > 0.001) {
+					sleep_ms((int)(std::min(ahead, 0.05) * 1000.0), "realtime");
+				}
+			}
+			PSP_RunLoopFor(blockTicks);
+		}
 
 		// If we were rendering, this might be a nice time to do something about it.
 		if (coreState == CORE_NEXTFRAME) {
+			completedFrames++;
 			// INFO_LOG(Log::System, "(frame)");
 			coreState = CORE_RUNNING_CPU;
 			// Close and reopen the frame, which is what the app does once per displayed frame.
@@ -729,6 +755,19 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 	}
 	if (gpu) {
 		gpu->EndHostFrame();
+	}
+
+	if (opt.rollbackStress > 0) {
+		const Rollback::SessionStats rb = Rollback::GetSessionStats();
+		Rollback::StopSession();
+		fprintf(stderr, "Rollback stress: %s frames=%d rollbackFrames=%lld state=%u bytes (peak %zu) save=%.2fms load=%.2fms saveFail=%d loadFail=%d",
+			rb.desyncFrame >= 0 ? "DESYNC" : "clean", rb.frame, (long long)rb.rollbackFrames, rb.stateSize, rb.stateHighWatermark,
+			rb.avgSaveMs, rb.avgLoadMs, rb.saveFailures, rb.loadFailures);
+		if (rb.desyncFrame >= 0)
+			fprintf(stderr, " desyncFrame=%d (%08x vs %08x)", rb.desyncFrame, rb.desyncLocal, rb.desyncRemote);
+		fprintf(stderr, "\n");
+		if (rb.desyncFrame >= 0 || rb.saveFailures || rb.loadFailures || rb.frame == 0)
+			passed = false;
 	}
 
 	if (opt.frameStats) {
@@ -990,6 +1029,9 @@ int main(int argc, const char* argv[]) {
 			}
 		}
 	}
+	testOptions.rollbackStress = cmdLineOptions.rollbackStress.value_or(0);
+	testOptions.rollbackFuzz = cmdLineOptions.rollbackFuzz.value_or(false);
+	testOptions.rollbackStart = cmdLineOptions.rollbackStart.value_or(300);
 	testOptions.maxScreenshotError = cmdLineOptions.maxScreenshotError.value_or(0.0);
 	testOptions.requiredDisableHLE = cmdLineOptions.disableHLE.value_or(0);
 	testOptions.debugger = cmdLineOptions.DebuggerPort().has_value();
