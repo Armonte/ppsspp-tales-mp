@@ -32,7 +32,6 @@
 #include "GPU/GLES/ShaderManagerGLES.h"
 #include "GPU/GLES/GPU_GLES.h"
 #include "GPU/GLES/FramebufferManagerGLES.h"
-#include "Core/Rollback/Lockdown.h"
 
 static const GLuint glprim[8] = {
 	// Points, which are expanded to triangles.
@@ -219,10 +218,6 @@ void DrawEngineGLES::Invalidate(InvalidationCallbackFlags flags) {
 
 void DrawEngineGLES::Flush() {
 	if (!numDrawVerts_) {
-		return;
-	}
-	if (Rollback::IsResimulating()) {
-		ResetAfterDrawInline();
 		return;
 	}
 	PROFILE_THIS_SCOPE("flush");

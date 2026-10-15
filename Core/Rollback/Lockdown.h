@@ -29,11 +29,6 @@ void SetRollbackLoadRestoredPages(const std::vector<uint32_t> *pages);
 // Whether any restored page overlaps [start, end).
 bool RollbackLoadRestoredRange(uint32_t start, uint32_t end);
 
-// While a rollback re-simulates frames the player has already seen. The hardware renderers drop their draws then:
-// nothing they render reaches emulated state under the lockdown, and only the last frame is shown.
-bool IsResimulating();
-void SetResimulating(bool resimulating);
-
 void EnterLockdown();
 void ExitLockdown();
 

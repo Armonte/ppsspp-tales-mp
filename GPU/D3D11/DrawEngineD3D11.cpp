@@ -35,7 +35,6 @@
 #include "GPU/D3D11/TextureCacheD3D11.h"
 #include "GPU/D3D11/DrawEngineD3D11.h"
 #include "GPU/D3D11/ShaderManagerD3D11.h"
-#include "Core/Rollback/Lockdown.h"
 
 using namespace Microsoft::WRL;
 
@@ -278,10 +277,6 @@ void DrawEngineD3D11::Invalidate(InvalidationCallbackFlags flags) {
 
 void DrawEngineD3D11::Flush() {
 	if (!numDrawVerts_) {
-		return;
-	}
-	if (Rollback::IsResimulating()) {
-		ResetAfterDrawInline();
 		return;
 	}
 

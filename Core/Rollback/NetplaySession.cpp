@@ -251,14 +251,12 @@ void RunSessionFrame() {
 				coreState = CORE_RUNNING_CPU;
 			const NetInput *inputs = (const NetInput *)e->data.adv.inputs;
 			ApplyInput(*s, inputs);
-			SetResimulating(e->data.adv.rolling_back);
 			const int vcountBefore = __DisplayGetVCount();
 			const int gameFramesBefore = __DisplayGetGameFrames();
 			// One advance is exactly one PSP frame: keep running until the frame ends (or the core stops).
 			do {
 				PSP_RunLoopWhileState();
 			} while (coreState == CORE_RUNNING_CPU);
-			SetResimulating(false);
 			const int vblanks = __DisplayGetVCount() - vcountBefore;
 			advanced = true;
 			std::lock_guard<std::mutex> guard(g_statsLock);
