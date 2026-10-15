@@ -125,6 +125,10 @@ static double curFrameTime;
 static double lastFrameTime;
 static double nextFrameTime;
 static int numVBlanksSinceFlip;
+// Frames the game finished: vblanks where it drew a new frame, or the 10th vblank without one. Without the rollback
+// lockdown, these are the vblanks that end a host frame (with duplicate frames off). Host-side, for tests.
+static int numGameFrames;
+static int numVBlanksSinceGameFrame;
 // Host timestamp of the last flip we let through, for the fast-forward flip limiter in
 // __DisplayFlip. Up here with the rest of them so a boot resets it - as a static inside the
 // function it kept a timestamp from whatever ran before, and the first flip of a new game was
@@ -203,6 +207,8 @@ void __DisplayInit() {
 	height = 272;
 	numSkippedFrames = 0;
 	numVBlanksSinceFlip = 0;
+	numGameFrames = 0;
+	numVBlanksSinceGameFrame = 0;
 	flippedThisFrame = false;
 	framebufIsLatched = false;
 	framebuf.topaddr = 0x04000000;
@@ -639,6 +645,10 @@ void __DisplaySetDisplayLayoutConfig(const DisplayLayoutConfig &config) {
 	g_displayLayoutConfigCached = config;
 }
 
+int __DisplayGetGameFrames() {
+	return numGameFrames;
+}
+
 void __DisplayFlip(int cyclesLate) {
 	if (!gpu) {
 		_dbg_assert_(gpu);
@@ -736,6 +746,10 @@ void __DisplayFlip(int cyclesLate) {
 
 	if (fbDirty) {
 		gpuStats.totals.numFlips++;
+	}
+	if (fbReallyDirty || ++numVBlanksSinceGameFrame >= 10) {
+		numGameFrames++;
+		numVBlanksSinceGameFrame = 0;
 	}
 
 	float scaledTimestep = (float)numVBlanksSinceFlip * timePerVblank;

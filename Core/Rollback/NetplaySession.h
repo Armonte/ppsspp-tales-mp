@@ -7,7 +7,7 @@
 //
 // While a session runs, RunSessionFrame() replaces PSP_RunLoopWhileState() on the emu thread: it hands the
 // local player's input to GekkoNet and plays GekkoNet's events, where each advance applies the synced inputs
-// (through __CtrlSetNetplayInput) and runs one PSP frame, and saves/loads go through NetplayState.
+// (player 1 through __CtrlSetNetplayInput, player 2 through the game's hidden 2P path where there is one) and runs one PSP frame, and saves/loads go through NetplayState.
 //
 // The stress role runs locally with two local actors and no network: GekkoNet rolls back check_distance
 // frames, re-simulates and compares checksums continuously, which catches save/load non-determinism.
@@ -36,6 +36,8 @@ struct SessionConfig {
 	bool trackWrites = true;
 	// With write tracking, also hash every page and count pages the tracker missed (slow; testing).
 	bool validatePages = false;
+	// Stress: take both players' input from SetScriptedInput (a recording) instead of the pad and a neutral player.
+	bool scriptedInput = false;
 };
 
 struct SessionStats {
@@ -66,6 +68,9 @@ struct SessionStats {
 	// Vblanks per advanced (non-rollback) frame: should always be 1 under the lockdown.
 	int minVblanksPerFrame = 0;
 	int maxVblanksPerFrame = 0;
+	// Whether the last advanced (non-rollback) frame finished a game frame (__DisplayGetGameFrames).
+	bool lastFrameEndedGameFrame = false;
+	int lastFrameVblanks = 0;
 	int diagMismatchFrame = -1;
 	size_t diagFirstDiff = 0;
 };
@@ -80,5 +85,8 @@ bool IsSessionActive();
 void RunSessionFrame();
 
 SessionStats GetSessionStats();
+
+// With SessionConfig::scriptedInput: both players' input (CTRL_* bits, stick centered) for the next host frame.
+void SetScriptedInput(uint32_t player1Buttons, uint32_t player2Buttons);
 
 }  // namespace Rollback

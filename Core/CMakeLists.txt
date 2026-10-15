@@ -676,6 +676,8 @@ add_library(Core STATIC
 	Rollback/Lockdown.h
 	Rollback/NetplaySession.cpp
 	Rollback/NetplaySession.h
+	Rollback/TekkenDR.cpp
+	Rollback/TekkenDR.h
 	Rollback/NetplayState.cpp
 	Rollback/NetplayState.h
 	Rollback/PageStore.cpp

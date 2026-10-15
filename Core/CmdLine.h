@@ -208,6 +208,10 @@ struct CommandLineOptions {
 	std::optional<bool> rollbackFullStates;
 	std::optional<bool> rollbackHashPages;
 	std::optional<bool> rollbackValidatePages;
+	// Headless: play a recording's inputs (.budarec), screenshots along the way, per-frame timeline.
+	std::optional<std::string> rollbackReplay;
+	std::optional<std::string> rollbackReplayShots;
+	std::optional<std::string> rollbackReplayLog;
 
 	std::optional<std::string> screenshotFilename;
 	std::optional<std::string> screenshotFilenameSave;

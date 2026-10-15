@@ -8,10 +8,12 @@
 #include "Common/Log.h"
 #include "Core/Core.h"
 #include "Core/HLE/sceCtrl.h"
+#include "Core/HLE/sceDisplay.h"
 #include "Core/HW/Display.h"
 #include "Core/Rollback/Lockdown.h"
 #include "Core/Rollback/NetplayState.h"
 #include "Core/Rollback/Profile.h"
+#include "Core/Rollback/TekkenDR.h"
 #include "Core/System.h"
 
 namespace Rollback {
@@ -36,6 +38,9 @@ struct Session {
 	uint32_t fuzzSeed = 0x2545F491;
 	int fuzzHoldFrames = 0;
 	NetInput fuzzInput{};
+	NetInput scripted[2]{};
+	// Player 2 plays through Tekken: Dark Resurrection's hidden local 2P path.
+	bool tekkenDR = false;
 };
 
 std::mutex g_statsLock;
@@ -69,9 +74,11 @@ NetInput FuzzInput(Session &s) {
 	return s.fuzzInput;
 }
 
-void ApplyInput(const NetInput &in) {
-	const u8 analog[2][2] = { { in.analogX, in.analogY }, { 128, 128 } };
-	__CtrlSetNetplayInput(true, in.buttons, analog);
+void ApplyInput(const Session &s, const NetInput *inputs) {
+	const u8 analog[2][2] = { { inputs[0].analogX, inputs[0].analogY }, { 128, 128 } };
+	__CtrlSetNetplayInput(true, inputs[0].buttons, analog);
+	if (s.tekkenDR)
+		TekkenDRApplyPlayer2(inputs[1].buttons, inputs[1].analogX, inputs[1].analogY);
 }
 
 void UpdateStats(Session &s) {
@@ -108,6 +115,9 @@ bool StartSession(const SessionConfig &config) {
 
 	Session *s = new Session();
 	s->config = config;
+	s->tekkenDR = IsTekkenDR();
+	for (NetInput &in : s->scripted)
+		in.analogX = in.analogY = 128;
 	const int checkDistance = config.checkDistance > 0 ? config.checkDistance : 16;
 	// Loads go back at most the check distance (stress) or the prediction window; keep a margin on top.
 	const int keepFrames = checkDistance + 8 + 32;
@@ -192,11 +202,13 @@ void RunSessionFrame() {
 		return;
 	}
 
-	NetInput local = s->config.fuzzInput ? FuzzInput(*s) : ReadLocalInput();
-	NetInput neutral{};
-	neutral.analogX = neutral.analogY = 128;
+	NetInput local = s->config.scriptedInput ? s->scripted[0] : s->config.fuzzInput ? FuzzInput(*s) : ReadLocalInput();
+	NetInput extra{};
+	extra.analogX = extra.analogY = 128;
+	if (s->config.scriptedInput)
+		extra = s->scripted[1];
 	gekko_add_local_input(s->gekko, s->localHandle, &local);
-	gekko_add_local_input(s->gekko, s->extraLocalHandle, &neutral);
+	gekko_add_local_input(s->gekko, s->extraLocalHandle, &extra);
 
 	int sessionEventCount = 0;
 	if (GekkoSessionEvent **events = gekko_session_events(s->gekko, &sessionEventCount)) {
@@ -238,8 +250,9 @@ void RunSessionFrame() {
 			if (advanced && coreState == CORE_NEXTFRAME)
 				coreState = CORE_RUNNING_CPU;
 			const NetInput *inputs = (const NetInput *)e->data.adv.inputs;
-			ApplyInput(inputs[0]);
+			ApplyInput(*s, inputs);
 			const int vcountBefore = __DisplayGetVCount();
+			const int gameFramesBefore = __DisplayGetGameFrames();
 			// One advance is exactly one PSP frame: keep running until the frame ends (or the core stops).
 			do {
 				PSP_RunLoopWhileState();
@@ -251,6 +264,8 @@ void RunSessionFrame() {
 			if (e->data.adv.rolling_back) {
 				g_stats.rollbackFrames++;
 			} else {
+				g_stats.lastFrameEndedGameFrame = __DisplayGetGameFrames() != gameFramesBefore;
+				g_stats.lastFrameVblanks = vblanks;
 				if (g_stats.maxVblanksPerFrame == 0 || vblanks < g_stats.minVblanksPerFrame)
 					g_stats.minVblanksPerFrame = vblanks;
 				if (vblanks > g_stats.maxVblanksPerFrame)
@@ -263,6 +278,13 @@ void RunSessionFrame() {
 		}
 	}
 	UpdateStats(*s);
+}
+
+void SetScriptedInput(uint32_t player1Buttons, uint32_t player2Buttons) {
+	if (Session *s = g_session) {
+		s->scripted[0].buttons = player1Buttons;
+		s->scripted[1].buttons = player2Buttons;
+	}
 }
 
 SessionStats GetSessionStats() {
