@@ -26,6 +26,16 @@ bool IsLockedDown() {
 	return g_lockedDown;
 }
 
+static bool g_resimulating = false;
+
+bool IsResimulating() {
+	return g_resimulating;
+}
+
+void SetResimulating(bool resimulating) {
+	g_resimulating = resimulating;
+}
+
 static const std::vector<uint32_t> *g_restoredPages = nullptr;
 
 const std::vector<uint32_t> *RollbackLoadRestoredPages() {

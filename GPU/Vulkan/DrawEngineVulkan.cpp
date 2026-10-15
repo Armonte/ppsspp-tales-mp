@@ -41,6 +41,7 @@
 #include "GPU/Vulkan/ShaderManagerVulkan.h"
 #include "GPU/Vulkan/PipelineManagerVulkan.h"
 #include "GPU/Vulkan/FramebufferManagerVulkan.h"
+#include "Core/Rollback/Lockdown.h"
 
 using namespace PPSSPP_VK;
 
@@ -204,6 +205,10 @@ void DrawEngineVulkan::Invalidate(InvalidationCallbackFlags flags) {
 // The inline wrapper in the header checks for numDrawCalls_ == 0
 void DrawEngineVulkan::Flush() {
 	if (!numDrawVerts_) {
+		return;
+	}
+	if (Rollback::IsResimulating()) {
+		ResetAfterDrawInline();
 		return;
 	}
 
