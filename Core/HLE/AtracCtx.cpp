@@ -42,7 +42,7 @@ Atrac::~Atrac() {
 }
 
 void Atrac::DoState(PointerWrap &p) {
-	auto s = p.Section("Atrac", 1, 9);
+	auto s = p.Section("Atrac", 1, 10);
 	if (!s)
 		return;
 
@@ -158,6 +158,12 @@ void Atrac::DoState(PointerWrap &p) {
 	if (s >= 2 && s < 9) {
 		bool oldResetBuffer = false;
 		Do(p, oldResetBuffer);
+	}
+
+	if (s >= 10) {
+		// Without the history, the frames decoded right after a load differ from the original run (rollback
+		// netplay re-simulates from loads).
+		DoDecoderHistory(p);
 	}
 }
 
@@ -313,6 +319,15 @@ void Atrac::CalculateStreamInfo(u32 *outReadOffset) {
 	if (outReadOffset) {
 		*outReadOffset = readOffset;
 	}
+}
+
+void AtracBase::DoDecoderHistory(PointerWrap &p) {
+	std::vector<uint8_t> history;
+	if (p.mode != PointerWrap::MODE_READ && decoder_)
+		decoder_->SaveHistory(&history);
+	Do(p, history);
+	if (p.mode == PointerWrap::MODE_READ && decoder_ && !decoder_->LoadHistory(history))
+		WARN_LOG(Log::ME, "Atrac: the saved decoder history doesn't fit this decoder; continuing from a fresh one");
 }
 
 void AtracBase::CreateDecoder(int codecType, int bytesPerFrame, int channels, bool jointStereo) {

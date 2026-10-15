@@ -767,6 +767,35 @@ int atrac3_decode_frame(ATRAC3Context *ctx, float *out_data[2], int *nb_samples,
     return block_align;
 }
 
+int atrac3_snapshot_size(const ATRAC3Context *ctx) {
+    return (int)(sizeof(ATRAC3Context) + ctx->channels * sizeof(ChannelUnit));
+}
+
+void atrac3_snapshot_save(const ATRAC3Context *ctx, uint8_t *out) {
+    // The context's own pointers and setup (bit reader, units, scratch buffer, gain/MDCT tables) are copied too,
+    // but load ignores them.
+    memcpy(out, ctx, sizeof(ATRAC3Context));
+    memcpy(out + sizeof(ATRAC3Context), ctx->units, ctx->channels * sizeof(ChannelUnit));
+}
+
+bool atrac3_snapshot_load(ATRAC3Context *ctx, const uint8_t *in, int size) {
+    ATRAC3Context saved;
+    if (size != atrac3_snapshot_size(ctx))
+        return false;
+    memcpy(&saved, in, sizeof(saved));
+    if (saved.channels != ctx->channels || saved.block_align != ctx->block_align)
+        return false;
+    ctx->coding_mode = saved.coding_mode;
+    memcpy(ctx->matrix_coeff_index_prev, saved.matrix_coeff_index_prev, sizeof(ctx->matrix_coeff_index_prev));
+    memcpy(ctx->matrix_coeff_index_now, saved.matrix_coeff_index_now, sizeof(ctx->matrix_coeff_index_now));
+    memcpy(ctx->matrix_coeff_index_next, saved.matrix_coeff_index_next, sizeof(ctx->matrix_coeff_index_next));
+    memcpy(ctx->weighting_delay, saved.weighting_delay, sizeof(ctx->weighting_delay));
+    memcpy(ctx->temp_buf, saved.temp_buf, sizeof(ctx->temp_buf));
+    ctx->scrambled_stream = saved.scrambled_stream;
+    memcpy(ctx->units, in + sizeof(ATRAC3Context), ctx->channels * sizeof(ChannelUnit));
+    return true;
+}
+
 void atrac3_flush_buffers(ATRAC3Context *c) {
 	// There's no known correct way to do this, so let's just reset some stuff.
 	memset(c->temp_buf, 0, sizeof(c->temp_buf));

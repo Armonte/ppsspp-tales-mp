@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "Core/HW/MediaEngine.h"
 #include "Core/HLE/sceAudiocodec.h"
 
@@ -41,6 +43,12 @@ public:
 	// NOTE: This can come late (MediaEngine::getAudioSample)! But it will come before the first Decode.
 	virtual void SetChannels(int channels) = 0;
 	virtual void FlushBuffers() {}
+
+	// Savestates: the decoder's history (what carries from one frame to the next), so decoding after a load
+	// continues exactly where the save left off. Empty for decoders without it. Restores into a decoder created
+	// with the same parameters; returns false (keeping a fresh history) otherwise.
+	virtual void SaveHistory(std::vector<uint8_t> *out) const { out->clear(); }
+	virtual bool LoadHistory(const std::vector<uint8_t> &in) { return in.empty(); }
 
 	// Just metadata.
 	void SetCtxPtr(uint32_t ptr) { ctxPtr = ptr; }

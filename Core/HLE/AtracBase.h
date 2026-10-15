@@ -208,6 +208,8 @@ public:
 
 	// jointStereo only matters for Atrac3. Take it from the track header where there is one.
 	void CreateDecoder(int codecType, int bytesPerFrame, int channels, bool jointStereo);
+	// Saves the decoder's history, and on load restores it into the decoder DoState just created.
+	void DoDecoderHistory(PointerWrap &p);
 
 	virtual void NotifyGetContextAddress() = 0;
 

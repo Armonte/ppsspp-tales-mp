@@ -164,6 +164,33 @@ public:
 
 	PSPAudioType GetAudioType() const override { return audioType_; }
 
+	void SaveHistory(std::vector<uint8_t> *out) const override {
+		out->clear();
+		if (at3Ctx_) {
+			out->resize(atrac3_snapshot_size(at3Ctx_));
+			atrac3_snapshot_save(at3Ctx_, out->data());
+		} else if (at3pCtx_) {
+			out->resize(atrac3p_snapshot_size(at3pCtx_));
+			atrac3p_snapshot_save(at3pCtx_, out->data());
+		}
+	}
+
+	bool LoadHistory(const std::vector<uint8_t> &in) override {
+		if (in.empty())
+			return true;
+		if (audioType_ == PSP_CODEC_AT3PLUS && !at3pCtx_ && !codecFailed_) {
+			// Normally opened on the first decode (see Decode), but the history needs the context now.
+			at3pCtx_ = atrac3p_alloc(channels_, &blockAlign_);
+			codecOpen_ = at3pCtx_ != nullptr;
+			codecFailed_ = at3pCtx_ == nullptr;
+		}
+		if (at3Ctx_)
+			return atrac3_snapshot_load(at3Ctx_, in.data(), (int)in.size());
+		if (at3pCtx_)
+			return atrac3p_snapshot_load(at3pCtx_, in.data(), (int)in.size());
+		return false;
+	}
+
 private:
 	ATRAC3PContext *at3pCtx_ = nullptr;
 	ATRAC3Context *at3Ctx_ = nullptr;
