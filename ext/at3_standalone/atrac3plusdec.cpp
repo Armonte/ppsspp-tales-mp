@@ -34,6 +34,7 @@
  * for their precious technical help!
  */
 
+#include <cstddef>
 #include <stdint.h>
 #include <string.h>
 
@@ -80,6 +81,12 @@ static T *slot_from_index(T *p, T *slot0, T *slot1) {
 
 void atrac3p_snapshot_save(const ATRAC3PContext *ctx, uint8_t *out) {
     memcpy(out, ctx, sizeof(ATRAC3PContext));
+    // Load ignores the context's pointers and setup; zero them (see atrac3_snapshot_save).
+    memset(out + offsetof(ATRAC3PContext, gb), 0, sizeof(ctx->gb));
+    memset(out + offsetof(ATRAC3PContext, gainc_ctx), 0, sizeof(ctx->gainc_ctx));
+    memset(out + offsetof(ATRAC3PContext, mdct_ctx), 0, sizeof(ctx->mdct_ctx));
+    memset(out + offsetof(ATRAC3PContext, ipqf_dct_ctx), 0, sizeof(ctx->ipqf_dct_ctx));
+    memset(out + offsetof(ATRAC3PContext, ch_units), 0, sizeof(ctx->ch_units));
     Atrac3pChanUnitCtx *units = (Atrac3pChanUnitCtx *)(out + sizeof(ATRAC3PContext));
     memcpy(units, ctx->ch_units, ctx->num_channel_blocks * sizeof(Atrac3pChanUnitCtx));
     for (int i = 0; i < ctx->num_channel_blocks; i++) {

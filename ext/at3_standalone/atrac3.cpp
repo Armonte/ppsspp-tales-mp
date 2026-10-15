@@ -33,6 +33,7 @@
  */
 #define _USE_MATH_DEFINES
 
+#include <cstddef>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -772,9 +773,14 @@ int atrac3_snapshot_size(const ATRAC3Context *ctx) {
 }
 
 void atrac3_snapshot_save(const ATRAC3Context *ctx, uint8_t *out) {
-    // The context's own pointers and setup (bit reader, units, scratch buffer, gain/MDCT tables) are copied too,
-    // but load ignores them.
     memcpy(out, ctx, sizeof(ATRAC3Context));
+    // Load ignores the context's own pointers and setup (bit reader, units, scratch buffer, gain/MDCT tables).
+    // Zero them, so a snapshot doesn't depend on where the decoder was allocated (rollback netplay checksums it).
+    memset(out + offsetof(ATRAC3Context, gb), 0, sizeof(ctx->gb));
+    memset(out + offsetof(ATRAC3Context, units), 0, sizeof(ctx->units));
+    memset(out + offsetof(ATRAC3Context, decoded_bytes_buffer), 0, sizeof(ctx->decoded_bytes_buffer));
+    memset(out + offsetof(ATRAC3Context, gainc_ctx), 0, sizeof(ctx->gainc_ctx));
+    memset(out + offsetof(ATRAC3Context, mdct_ctx), 0, sizeof(ctx->mdct_ctx));
     memcpy(out + sizeof(ATRAC3Context), ctx->units, ctx->channels * sizeof(ChannelUnit));
 }
 
