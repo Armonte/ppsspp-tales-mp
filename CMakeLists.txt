@@ -163,6 +163,9 @@ endif()
 
 # User-editable options (go into CMakeCache.txt)
 # :: Processors
+# Rollback fork: build the SDL3 frontend on Windows too (instead of the Win32 frontend), so Windows and Linux
+# share one frontend and one netplay code path.
+option(PPSSPP_SDL_ON_WINDOWS "Build the SDL3 frontend (PPSSPPSDL) on Windows instead of PPSSPPWindows" OFF)
 option(ARMV7 "Set to ON if targeting an ARMv7 processor" ${ARMV7_DEVICE})
 option(ARM "Set to ON if targeting an ARM processor" ${ARM_DEVICE})
 option(MIPS "Set to ON if targeting a MIPS processor" ${MIPS_DEVICE})
@@ -965,7 +968,7 @@ elseif(IOS AND NOT LIBRETRO)
 	set(TargetBin PPSSPP)
 elseif(IOS AND LIBRETRO)
 	list(APPEND targetExtraLibs "-framework GLKit")
-elseif(WIN32)
+elseif(WIN32 AND NOT PPSSPP_SDL_ON_WINDOWS)
 	# Don't care about SDL.
 	set(TargetBin PPSSPPWindows)
 elseif(LIBRETRO)
@@ -992,6 +995,14 @@ else()
 		SDL/SDLUtil.cpp
 		SDL/SDLGLGraphicsContext.cpp
 	)
+	if(WIN32)
+		# PPSSPP_SDL_ON_WINDOWS: the Win32 support code shared code expects (camera, shell dialogs, main HWND).
+		list(APPEND targetExtra
+			SDL/SDLWin32Shims.cpp
+			Windows/CaptureDevice.cpp
+			Windows/W32Util/ShellUtil.cpp
+		)
+	endif()
 	if(SDL_TTF_LIB_TARGET)
 		list(APPEND targetExtraLibs ${SDL_TTF_LIB_TARGET})
 	endif()
@@ -1228,7 +1239,7 @@ set(WindowsFiles
 	Windows/stdafx.h
 )
 
-if(WIN32)
+if(WIN32 AND NOT PPSSPP_SDL_ON_WINDOWS)
 	#setup_target_project(${TargetBin} Windows)
 	list(APPEND NativeAppSource ${WindowsFiles})
 endif()
@@ -1281,7 +1292,8 @@ if(HEADLESS)
 		headless/ReverseEngineer.cpp
 		headless/ReverseEngineer.h
 	)
-	if(SDL_LIB_TARGET)
+	# Windows headless uses WindowsHeadlessHost even when the SDL frontend is built (PPSSPP_SDL_ON_WINDOWS).
+	if(SDL_LIB_TARGET AND NOT WIN32)
 		list(APPEND HeadlessSource
 			headless/SDLHeadlessGLGraphicsContext.cpp
 			headless/SDLHeadlessGLGraphicsContext.h
@@ -1347,6 +1359,8 @@ if(HEADLESS)
 	endif()
 	if(WIN32)
 		target_link_libraries(PPSSPPHeadless d2d1 dwrite d3d11)
+		# Core's Windows code (camera, shell utils) needs these; the Win32 frontend target used to bring them in.
+		target_link_libraries(PPSSPPHeadless avrt comctl32 mfplat mfuuid mfreadwrite ole32 shlwapi uxtheme version)
 	endif()
 	setup_target_project(PPSSPPHeadless headless)
 endif()
@@ -1503,7 +1517,7 @@ if(TargetBin)
 			add_executable(${TargetBin} MACOSX_BUNDLE ${ICON_PATH_ABS} ${NativeAssets} ${BigFontAssets} ${UIImages} ${SHADER_FILES} ${THEME_FILE} ${DEBUGGER_FILES} ${WEB_UPLOAD_FILES} ${FLASH0_FILES} ${LANG_FILES} ${NativeAppSource})
 			file(INSTALL "${CMAKE_SOURCE_DIR}/ext/vulkan/macOS/Frameworks/libMoltenVK.dylib" DESTINATION "${CMAKE_BINARY_DIR}/${TargetBin}.app/Contents/Frameworks/")
 		endif()
-	elseif(WIN32)
+	elseif(WIN32 AND NOT PPSSPP_SDL_ON_WINDOWS)
 		add_executable(${TargetBin} WIN32 ${NativeAppSource})
 		if(NOT MSVC)
 			target_compile_options(${TargetBin} PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Wno-c++11-narrowing>)
@@ -1531,6 +1545,9 @@ if(TargetBin)
 		target_link_libraries(${TargetBin} log EGL OpenSLES)
 	elseif(WIN32)
 		target_link_libraries(${TargetBin} ws2_32 winmm)
+		if(PPSSPP_SDL_ON_WINDOWS)
+			target_link_libraries(${TargetBin} avrt comctl32 d2d1 dwrite d3d11 dinput8 dwmapi hid ksuser mfplat mfuuid mfreadwrite ole32 setupapi shlwapi uxtheme version)
+		endif()
 	elseif(${CMAKE_SYSTEM_NAME} MATCHES "^(DragonFly|FreeBSD|NetBSD)$")
 		target_link_libraries(${TargetBin} execinfo)
 	endif()

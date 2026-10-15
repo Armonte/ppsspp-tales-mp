@@ -1,0 +1,10 @@
+{
+  "name": "ppsspp-rollback",
+  "version-string": "0.0.0",
+  "description": "SDL3 + SDL3_ttf for the PPSSPP rollback fork's SDL frontend (Windows and Linux).",
+  "dependencies": [
+    { "name": "sdl3", "features": [ "vulkan" ] },
+    "sdl3-ttf"
+  ],
+  "builtin-baseline": "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
+}

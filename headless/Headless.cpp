@@ -375,7 +375,7 @@ void SendDebugScreenshot(const DebugScreenshotDesc &desc) {
 }
 
 static GraphicsContext *CreateGraphicsContext(GPUCore gpuCore, std::string **deviceSetting) {
-#ifdef SDL
+#if defined(SDL) && !defined(_WIN32)
 	*deviceSetting = nullptr;
 	switch (gpuCore) {
 	case GPUCORE_GLES:
