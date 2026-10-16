@@ -26,6 +26,7 @@
 #include "Core/MIPS/MIPSCodeUtils.h"
 #include "Core/MIPS/MIPSTables.h"
 #include "Core/MIPS/IR/IRFrontend.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/MIPS/IR/IRRegCache.h"
 #include "Core/MIPS/IR/IRPassSimplify.h"
 #include "Core/MIPS/IR/IRInterpreter.h"
@@ -54,9 +55,14 @@ bool IRFrontend::DoState(PointerWrap &p) {
 	const u8 oldLastSetRounding = js.lastSetRounding;
 	Do(p, js.startDefaultPrefix);
 	if (s >= 2) {
+		const u8 compiledWithRounding = js.lastSetRounding;
 		Do(p, js.hasSetRounding);
 		if (p.mode == p.MODE_READ) {
-			js.lastSetRounding = 0;
+			// Rollback loads keep the compiled blocks (see MIPSState::DoState). If they were compiled with
+			// rounding checks and the state uses rounding too, they're still right: don't throw them all away
+			// (that recompiled everything after every rollback). Otherwise they're cleared on the next compile,
+			// as after any load.
+			js.lastSetRounding = Rollback::RollbackLoadRestored() && compiledWithRounding && js.hasSetRounding;
 		}
 	} else {
 		js.hasSetRounding = 1;
