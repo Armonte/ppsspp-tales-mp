@@ -58,6 +58,7 @@ struct SessionStats {
 	size_t storedPageVersions = 0;
 	bool trackingWrites = false;
 	uint64_t pageFaults = 0;
+	size_t hotPages = 0;
 	uint64_t missedPages = 0;
 	// Average per-stage save/load times (Rollback::ProfileSummary).
 	std::string profile;

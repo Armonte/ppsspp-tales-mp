@@ -99,6 +99,7 @@ void UpdateStats(Session &s) {
 	g_stats.storedPageVersions = s.state.Pages().StoredVersions();
 	g_stats.trackingWrites = s.state.Pages().TrackingWrites();
 	g_stats.pageFaults = s.state.Pages().Faults();
+	g_stats.hotPages = s.state.Pages().HotPages();
 	g_stats.missedPages = s.state.Pages().MissedPages();
 	g_stats.profile = ProfileSummary(s.state.Saves(), s.state.Loads());
 	g_stats.loads = s.state.Loads();

@@ -21,6 +21,9 @@ namespace Rollback {
 namespace {
 
 constexpr size_t kPageSize = 4096;
+// Written in this many TakeDirty calls in a row: hot. Hot and unchanged this many times in a row: cold again.
+constexpr uint8_t kHotAfter = 4;
+constexpr uint8_t kColdAfter = 64;
 
 DirtyTracker *g_tracker = nullptr;
 std::atomic<uint64_t> g_faults{ 0 };
@@ -35,6 +38,10 @@ void SetBit(std::vector<uint64_t> &bits, size_t index) {
 
 bool TestBit(const std::vector<uint64_t> &bits, size_t index) {
 	return (bits[index / 64] >> (index % 64)) & 1;
+}
+
+void ClearBit(std::vector<uint64_t> &bits, size_t index) {
+	bits[index / 64] &= ~(1ULL << (index % 64));
 }
 
 #ifdef _WIN32
@@ -136,6 +143,10 @@ bool DirtyTracker::Arm() {
 		numPages_ += seg.size / kPageSize;
 	}
 	dirty_.assign((numPages_ + 63) / 64, 0);
+	hot_.assign((numPages_ + 63) / 64, 0);
+	dirtyStreak_.assign(numPages_, 0);
+	unchangedStreak_.assign(numPages_, 0);
+	hotCount_ = 0;
 
 	g_tracker = this;
 #ifdef _WIN32
@@ -210,22 +221,39 @@ uint64_t DirtyTracker::Faults() const {
 
 void DirtyTracker::TakeDirty(std::vector<uint32_t> *pages) {
 	for (size_t word = 0; word < dirty_.size(); word++) {
-		uint64_t bits = dirty_[word];
-		if (!bits)
-			continue;
+		uint64_t written = dirty_[word];
+		uint64_t bits = written | hot_[word];
 		dirty_[word] = 0;
+		// Streaks: written pages count up, the rest start over.
+		for (size_t i = 0, page = word * 64; i < 64 && page < numPages_; i++, page++) {
+			if ((written >> i) & 1) {
+				if (dirtyStreak_[page] < 255)
+					dirtyStreak_[page]++;
+				if (dirtyStreak_[page] >= kHotAfter && !((hot_[word] >> i) & 1)) {
+					hot_[word] |= 1ULL << i;
+					unchangedStreak_[page] = 0;
+					hotCount_++;
+				}
+			} else {
+				dirtyStreak_[page] = 0;
+			}
+		}
 		while (bits) {
 			const int bit = __builtin_ctzll(bits);
 			bits &= bits - 1;
 			pages->push_back((uint32_t)(word * 64 + bit));
 		}
 	}
-	// Protect again what the faults opened, in runs.
+	// Protect again what the faults opened, in runs, except hot pages.
 	for (View &view : views_) {
 		const size_t viewPages = view.size / kPageSize;
 		size_t runStart = SIZE_MAX;
 		for (size_t page = 0; page <= viewPages; page++) {
-			const bool open = page < viewPages && TestBit(view.writable, page);
+			bool open = page < viewPages && TestBit(view.writable, page);
+			if (open && TestBit(hot_, view.firstPage + page))
+				open = false;
+			else if (open)
+				ClearBit(view.writable, page);
 			if (open && runStart == SIZE_MAX) {
 				runStart = page;
 			} else if (!open && runStart != SIZE_MAX) {
@@ -233,7 +261,21 @@ void DirtyTracker::TakeDirty(std::vector<uint32_t> *pages) {
 				runStart = SIZE_MAX;
 			}
 		}
-		std::fill(view.writable.begin(), view.writable.end(), 0);
+	}
+}
+
+void DirtyTracker::NoteSaved(uint32_t page, bool changed) {
+	if (page >= numPages_ || !TestBit(hot_, page))
+		return;
+	if (changed) {
+		unchangedStreak_[page] = 0;
+	} else if (++unchangedStreak_[page] >= kColdAfter) {
+		// Cold. It stays open until the next TakeDirty protects it, and writes until then don't fault, so that
+		// one reports it too.
+		ClearBit(hot_, page);
+		SetBit(dirty_, page);
+		dirtyStreak_[page] = 0;
+		hotCount_--;
 	}
 }
 

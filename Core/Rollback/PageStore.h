@@ -32,6 +32,7 @@ public:
 	// Pages that changed without the tracker noticing (validate mode). Must stay 0.
 	uint64_t MissedPages() const { return missedPages_; }
 	uint64_t Faults() const { return tracker_.Faults(); }
+	size_t HotPages() const { return tracker_.HotPages(); }
 
 	// Records the pages that changed since the last Save/Load as frame's versions. Returns a hash of all pages
 	// (the content as of frame), for the netplay checksum.

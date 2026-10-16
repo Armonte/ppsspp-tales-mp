@@ -12,6 +12,10 @@
 // hands over the dirty pages and makes them read-only again. Windows uses a vectored exception handler registered
 // ahead of PPSSPP's own; elsewhere a SIGSEGV handler that passes everything it doesn't own to the previous one.
 //
+// Pages written in several saves in a row become hot: they stay writable and are reported dirty every time
+// (the page store's hash tells whether they really changed), which saves a fault and a re-protect per page per
+// frame for the stack and the game's per-frame variables. A hot page that stops changing is protected again.
+//
 // Pages are numbered like PageStore's: RAM (from 0x08000000) first, then VRAM (from 0x04000000).
 
 namespace Rollback {
@@ -25,8 +29,12 @@ public:
 	void Disarm();
 	bool Armed() const { return armed_; }
 
-	// Appends the pages written since the last call to pages (ascending), clears them and protects them again.
+	// Appends the pages written since the last call, and the hot pages, to pages (ascending); clears them and
+	// protects them again (except hot ones).
 	void TakeDirty(std::vector<uint32_t> *pages);
+	// Whether the page store found a page from TakeDirty changed: a hot page that keeps not changing goes cold.
+	void NoteSaved(uint32_t page, bool changed);
+	size_t HotPages() const { return hotCount_; }
 
 	// Faults handled since Arm().
 	uint64_t Faults() const;
@@ -47,6 +55,10 @@ private:
 	std::vector<View> views_;
 	size_t numPages_ = 0;
 	std::vector<uint64_t> dirty_;  // bit per page number
+	std::vector<uint64_t> hot_;  // bit per page number
+	std::vector<uint8_t> dirtyStreak_;  // consecutive TakeDirty calls a page was written in
+	std::vector<uint8_t> unchangedStreak_;  // consecutive NoteUnchanged calls for a hot page
+	size_t hotCount_ = 0;
 	bool armed_ = false;
 };
 

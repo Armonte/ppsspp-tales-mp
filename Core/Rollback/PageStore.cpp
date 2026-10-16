@@ -111,7 +111,9 @@ uint64_t PageStore::Save(int frame) {
 		dirtyScratch_.clear();
 		tracker_.TakeDirty(&dirtyScratch_);
 		for (uint32_t index : dirtyScratch_) {
-			if (SavePage(pages_[index], frame))
+			const bool changed = SavePage(pages_[index], frame);
+			tracker_.NoteSaved(index, changed);
+			if (changed)
 				lastSavedPages_++;
 		}
 		if (validate_) {

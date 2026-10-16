@@ -961,8 +961,8 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			fprintf(stderr, " desyncFrame=%d (%08x vs %08x)", rb.desyncFrame, rb.desyncLocal, rb.desyncRemote);
 		fprintf(stderr, " vblanksPerFrame=%d..%d", rb.minVblanksPerFrame, rb.maxVblanksPerFrame);
 		if (!opt.rollbackFullStates)
-			fprintf(stderr, " pages(%s): lastSave=%zu lastLoad=%zu versions=%zu faults=%llu missed=%llu", rb.trackingWrites ? "faults" : "hashing",
-				rb.lastSavedPages, rb.lastLoadedPages, rb.storedPageVersions, (unsigned long long)rb.pageFaults, (unsigned long long)rb.missedPages);
+			fprintf(stderr, " pages(%s): lastSave=%zu lastLoad=%zu versions=%zu faults=%llu hot=%zu missed=%llu", rb.trackingWrites ? "faults" : "hashing",
+				rb.lastSavedPages, rb.lastLoadedPages, rb.storedPageVersions, (unsigned long long)rb.pageFaults, rb.hotPages, (unsigned long long)rb.missedPages);
 		if (rb.diagMismatchFrame >= 0)
 			fprintf(stderr, " diagMismatchFrame=%d firstDiff=+%zu", rb.diagMismatchFrame, rb.diagFirstDiff);
 		fprintf(stderr, "\nRollback profile: %s\nRollback kernel load breakdown:%s\n", rb.profile.c_str(), Rollback::ProfileNamedSummary(rb.loads).c_str());
