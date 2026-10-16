@@ -259,7 +259,7 @@ static void SanitizeLoadedFramebuf(FrameBufferState &fb) {
 }
 
 void __DisplayDoState(PointerWrap &p) {
-	auto s = p.Section("sceDisplay", 1, 8);
+	auto s = p.Section("sceDisplay", 1, 9);
 	if (!s)
 		return;
 
@@ -341,8 +341,10 @@ void __DisplayDoState(PointerWrap &p) {
 		Do(p, lastFlipCycles);
 		Do(p, nextFlipCycles);
 	}
-	if (p.mode == p.MODE_READ) {
-		// Not saved. Start counting again rather than carry over the session before the load.
+	if (s >= 9) {
+		// Whether sceDisplaySetFrameBuf delays the game (ForceMax60FPS games), so a load must restore it.
+		Do(p, lastFlipsTooFrequent);
+	} else if (p.mode == p.MODE_READ) {
 		lastFlipsTooFrequent = 0;
 	}
 
