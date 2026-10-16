@@ -37,7 +37,11 @@
 namespace MIPSComp {
 
 IRFrontend::IRFrontend(bool startDefaultPrefix) {
-	js.startDefaultPrefix = startDefaultPrefix;
+	// Rollback netplay: always compile for unknown VFPU prefixes. Default-prefix mode switches off when a compiled
+	// block ends with an uneaten prefix, and where blocks start depends on what ran first, including frames run on
+	// predicted input that a rollback then replaced. So peers (and a frame and its re-simulation) could switch at
+	// different times, and blocks kept across a rollback load could be compiled for the other mode.
+	js.startDefaultPrefix = startDefaultPrefix && !Rollback::IsLockedDown();
 	js.hasSetRounding = false;
 
 	// The debugger sets this so that "go" on a breakpoint will actually... go.
@@ -54,6 +58,10 @@ bool IRFrontend::DoState(PointerWrap &p) {
 	const bool oldHasSetRounding = js.hasSetRounding;
 	const u8 oldLastSetRounding = js.lastSetRounding;
 	Do(p, js.startDefaultPrefix);
+	if (p.mode == p.MODE_READ && Rollback::IsLockedDown()) {
+		// See the constructor.
+		js.startDefaultPrefix = false;
+	}
 	if (s >= 2) {
 		const u8 compiledWithRounding = js.lastSetRounding;
 		Do(p, js.hasSetRounding);
