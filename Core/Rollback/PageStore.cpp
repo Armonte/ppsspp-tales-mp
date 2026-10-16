@@ -135,6 +135,22 @@ uint64_t PageStore::Save(int frame) {
 	return XXH3_64bits(hashScratch_.data(), hashScratch_.size() * sizeof(uint64_t));
 }
 
+void PageStore::RestorePage(Page &page, const uint8_t *saved) {
+	constexpr uint32_t kStep = 64;
+	for (uint32_t offset = 0; offset < kPageSize; offset += kStep) {
+		if (memcmp(page.mem + offset, saved + offset, kStep) == 0)
+			continue;
+		const uint32_t start = page.addr + offset;
+		if (!restored_.empty() && restored_.back().end == start)
+			restored_.back().end = start + kStep;
+		else
+			restored_.push_back({ start, start + kStep });
+	}
+	// Through the unprotected alias (when tracking writes): no fault, and the page isn't dirty (it matches its
+	// version).
+	memcpy(page.writeMem, saved, kPageSize);
+}
+
 bool PageStore::Load(int frame) {
 	lastLoadedPages_ = 0;
 	restored_.clear();
@@ -159,9 +175,7 @@ bool PageStore::Load(int frame) {
 				continue;
 			}
 			if (HashPage(page.mem) != target.hash) {
-				// Through the unprotected alias: no fault, and the page isn't dirty (it matches its version).
-				memcpy(page.writeMem, SlotData(target.slot), kPageSize);
-				restored_.push_back(page.addr);
+				RestorePage(page, SlotData(target.slot));
 				lastLoadedPages_++;
 			}
 			page.hash = target.hash;
@@ -183,8 +197,7 @@ bool PageStore::Load(int frame) {
 		}
 		// Hash the live page too: it may have changed since the last save.
 		if (HashPage(page.mem) != target.hash) {
-			memcpy(page.mem, SlotData(target.slot), kPageSize);
-			restored_.push_back(page.addr);
+			RestorePage(page, SlotData(target.slot));
 			lastLoadedPages_++;
 		}
 		page.hash = target.hash;

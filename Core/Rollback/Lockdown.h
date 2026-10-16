@@ -21,12 +21,17 @@ namespace Rollback {
 
 bool IsLockedDown();
 
-// While a rollback load is restoring the core state: the guest addresses of the RAM/VRAM pages the page store
-// wrote back (4 KiB each). Lets loaders skip rebuilding what can't have changed (see __KernelModuleDoState).
-// Null outside a rollback load.
-const std::vector<uint32_t> *RollbackLoadRestoredPages();
-void SetRollbackLoadRestoredPages(const std::vector<uint32_t> *pages);
-// Whether any restored page overlaps [start, end).
+// A range of guest memory [start, end) that a rollback load changed.
+struct RestoredRange {
+	uint32_t start;
+	uint32_t end;
+};
+
+// While a rollback load is restoring the core state: the RAM/VRAM the page store changed (in 64-byte steps).
+// Lets loaders skip rebuilding what can't have changed (compiled code, module links). Null outside a rollback load.
+const std::vector<RestoredRange> *RollbackLoadRestored();
+void SetRollbackLoadRestored(const std::vector<RestoredRange> *ranges);
+// Whether the load changed anything in [start, end).
 bool RollbackLoadRestoredRange(uint32_t start, uint32_t end);
 
 void EnterLockdown();

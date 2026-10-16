@@ -141,9 +141,9 @@ bool NetplayState::Load(int frame, const uint8_t *state, unsigned int stateLen) 
 				return false;
 		}
 		ExcludeBulkMemory exclude(true);
-		SetRollbackLoadRestoredPages(&pages_.LastRestoredAddresses());
+		SetRollbackLoadRestored(&pages_.LastRestored());
 		err = SaveState::LoadFromBuffer(state + sizeof(header), header.coreLen, &errorString);
-		SetRollbackLoadRestoredPages(nullptr);
+		SetRollbackLoadRestored(nullptr);
 	}
 	loadMsTotal_ += (time_now_d() - start) * 1000.0;
 	loads_++;

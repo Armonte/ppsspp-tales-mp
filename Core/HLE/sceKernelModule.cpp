@@ -323,7 +323,7 @@ void PSPModule::DoState(PointerWrap &p) {
 		TerminateLoadedCString(p, sym.moduleName);
 	}
 
-	if (p.mode == p.MODE_READ && Rollback::RollbackLoadRestoredPages()) {
+	if (p.mode == p.MODE_READ && Rollback::RollbackLoadRestored()) {
 		// A rollback load within one session: syscall ids can't have changed, and the import stubs are in the RAM
 		// the page store restored. Keep the imports as saved (KernelModuleDoState may skip re-importing).
 	} else if (p.mode == p.MODE_READ) {
@@ -622,7 +622,7 @@ void __KernelModuleDoState(PointerWrap &p) {
 	__KernelRestoreActionType(actionAfterModule, AfterModuleEntryCall::Create);
 
 	// Rollback loads: the modules before the load, to tell whether anything needs relinking.
-	const std::set<SceUID> modulesBeforeLoad = Rollback::RollbackLoadRestoredPages() ? loadedModules : std::set<SceUID>();
+	const std::set<SceUID> modulesBeforeLoad = Rollback::RollbackLoadRestored() ? loadedModules : std::set<SceUID>();
 	if (s >= 2) {
 		Do(p, loadedModules);
 	}
@@ -669,7 +669,7 @@ void __KernelModuleDoState(PointerWrap &p) {
 		g_loadCoreCB = 0;
 	}
 
-	if (p.mode == p.MODE_READ && Rollback::RollbackLoadRestoredPages() && loadedModules == modulesBeforeLoad) {
+	if (p.mode == p.MODE_READ && Rollback::RollbackLoadRestored() && loadedModules == modulesBeforeLoad) {
 		// A rollback load that kept every module and restored no page of their code: the imports, the function
 		// hashes and the replacement hooks from before the load are still exactly right. Rebuilding them costs
 		// about 10 ms, more than everything else in a rollback load.
@@ -692,7 +692,7 @@ void __KernelModuleDoState(PointerWrap &p) {
 
 	if (p.mode == p.MODE_READ) {
 		u32 error;
-		if (Rollback::RollbackLoadRestoredPages()) {
+		if (Rollback::RollbackLoadRestored()) {
 			// SaveStart left the hooks in place for the fast path above; this path rebuilds them.
 			RestoreReplacedInstructions(0, 0xFFFFFFFF);
 		}
@@ -701,7 +701,7 @@ void __KernelModuleDoState(PointerWrap &p) {
 			PSPModule *module = kernelObjects.Get<PSPModule>(moduleId, error);
 			if (module && module->libstub != 0) {
 				// Rollback loads kept the imports as saved (see PSPModule::DoState); importing appends.
-				if (Rollback::RollbackLoadRestoredPages())
+				if (Rollback::RollbackLoadRestored())
 					module->importedFuncs.clear();
 				if (!KernelImportModuleFuncs(module, nullptr, true)) {
 					ERROR_LOG(Log::Loader, "Something went wrong loading imports on load state");

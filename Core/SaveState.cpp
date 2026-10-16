@@ -271,7 +271,7 @@ int g_screenshotFailures;
 		// The state may hold different code. KernelModuleDoState hooks the functions again.
 		// Rollback loads restored RAM already (the page store) and leave the hooks to KernelModuleDoState, which
 		// keeps them when no code changed.
-		const bool rollbackLoad = p.mode == p.MODE_READ && Rollback::RollbackLoadRestoredPages() != nullptr;
+		const bool rollbackLoad = p.mode == p.MODE_READ && Rollback::RollbackLoadRestored() != nullptr;
 		std::vector<std::pair<u32, u32>> hookedOps;
 		// The loaded modules' code is compared with the state's as it's loaded. Where it's the same,
 		// the JIT keeps its blocks, so they don't all have to be compiled again. (Not for rollback loads:

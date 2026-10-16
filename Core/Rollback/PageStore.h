@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "Core/Rollback/DirtyTracker.h"
+#include "Core/Rollback/Lockdown.h"
 
 // Frame-versioned copies of the PSP's RAM and VRAM, in 4 KiB pages, for rollback netplay.
 //
@@ -46,8 +47,8 @@ public:
 	// Pages copied by the last Save / written back by the last Load.
 	size_t LastSavedPages() const { return lastSavedPages_; }
 	size_t LastLoadedPages() const { return lastLoadedPages_; }
-	// Guest addresses of the pages the last Load wrote back.
-	const std::vector<uint32_t> &LastRestoredAddresses() const { return restored_; }
+	// What the last Load changed (64-byte steps, ascending).
+	const std::vector<RestoredRange> &LastRestored() const { return restored_; }
 
 private:
 	struct Version {
@@ -71,7 +72,10 @@ private:
 	std::vector<uint8_t> slotData_;
 	std::vector<uint32_t> freeSlots_;
 	std::vector<uint64_t> hashScratch_;
-	std::vector<uint32_t> restored_;
+	// Copies a saved page back, recording which parts of it changed.
+	void RestorePage(Page &page, const uint8_t *saved);
+
+	std::vector<RestoredRange> restored_;
 	std::vector<uint32_t> dirtyScratch_;
 	DirtyTracker tracker_;
 	struct Alias {

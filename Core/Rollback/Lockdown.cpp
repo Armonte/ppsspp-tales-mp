@@ -26,23 +26,21 @@ bool IsLockedDown() {
 	return g_lockedDown;
 }
 
-static const std::vector<uint32_t> *g_restoredPages = nullptr;
+static const std::vector<RestoredRange> *g_restored = nullptr;
 
-const std::vector<uint32_t> *RollbackLoadRestoredPages() {
-	return g_restoredPages;
+const std::vector<RestoredRange> *RollbackLoadRestored() {
+	return g_restored;
 }
 
-void SetRollbackLoadRestoredPages(const std::vector<uint32_t> *pages) {
-	g_restoredPages = pages;
+void SetRollbackLoadRestored(const std::vector<RestoredRange> *ranges) {
+	g_restored = ranges;
 }
 
 bool RollbackLoadRestoredRange(uint32_t start, uint32_t end) {
-	if (!g_restoredPages)
+	if (!g_restored)
 		return true;
-	if (start >= end)
-		return false;
-	for (uint32_t page : *g_restoredPages) {
-		if (page < end && page + 4096 > start)
+	for (const RestoredRange &range : *g_restored) {
+		if (range.start < end && range.end > start)
 			return true;
 	}
 	return false;
