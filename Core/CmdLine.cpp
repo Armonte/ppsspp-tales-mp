@@ -268,6 +268,7 @@ static const CommandLineParam g_autoParams[] = {
 	{POFF(rollbackReplay), CmdParamType::String, "rollback-replay", '\0', "Play the inputs of a .budarec recording from --state (player 2 through the game's 2P path), one recorded frame per game frame", CmdLineMode::Headless},
 	{POFF(rollbackReplayShots), CmdParamType::String, "rollback-replay-shots", '\0', "--rollback-replay: save a screenshot into DIR every 10 seconds of the recording", CmdLineMode::Headless},
 	{POFF(rollbackReplayLog), CmdParamType::String, "rollback-replay-log", '\0', "--rollback-replay: write a CSV of every frame (vblank, recorded frame, game frame ended) to FILE", CmdLineMode::Headless},
+	{POFF(sampleProfile), CmdParamType::Int, "sample-profile", '\0', "Sample the emulation thread's CPU time (Windows) and print the top N functions; starts with --rollback-stress's session or after --state loads", CmdLineMode::Headless},
 	{POFF(maxScreenshotError), CmdParamType::Double, "max-mse", '\0', "Maximum allowed MSE error for screenshot comparison", CmdLineMode::Headless},
 	{POFF(mountIso), CmdParamType::String, "mount", 'm', "Mount ISO/CSO on umd1: when booting an ELF/PBP or --vsh"},
 	{POFF(unpackUpdater), CmdParamType::String, "unpack-updater", '\0', "Unpack the firmware in an updater EBOOT.PBP into DIR and exit", CmdLineMode::Headless},

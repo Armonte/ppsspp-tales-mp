@@ -84,6 +84,7 @@
 #include "Core/Rollback/NetplaySession.h"
 #include "Core/Rollback/Profile.h"
 #include "Core/Rollback/TekkenDR.h"
+#include "headless/SampleProfiler.h"
 #include "Core/HLE/sceCtrl.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/HW/Display.h"
@@ -455,6 +456,7 @@ struct AutoTestOptions {
 	std::string rollbackReplay;
 	std::string rollbackReplayShots;
 	std::string rollbackReplayLog;
+	int sampleProfile;
 	// What --disable-hle asked for, or 0 if it was not passed. Only an explicit request binds:
 	// sceMpeg and sceMp4 run the firmware module by default now and fall back to the HLE wherever
 	// none is installed, which must not fail every run on such a machine.
@@ -717,6 +719,7 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 	std::vector<std::pair<double, Path>> screenshotsAt = opt.screenshotsAt;
 	// --rollback-stress: completed frames so far, to know when to start the session.
 	int completedFrames = 0;
+	bool sampling = false;
 	coreState = coreParameter.startBreak ? CORE_STEPPING_CPU : CORE_RUNNING_CPU;
 
 	// The XMB starting a game, or a game going back to it: boot that, the way the app does, and keep
@@ -832,6 +835,10 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			fprintf(stderr, "Rollback stress: started at frame %d, check distance %d, fuzz %s\n", completedFrames, opt.rollbackStress, opt.rollbackFuzz ? "on" : "off");
 		}
 
+		// --sample-profile: profile the rollback session, or everything after the state load.
+		if (opt.sampleProfile > 0 && !sampling && !g_stateLoadPending && (opt.rollbackStress == 0 || Rollback::IsSessionActive()))
+			sampling = SampleProfiler::Start();
+
 		// --rollback-replay: from the loaded state on, each frame plays the recorded frame the game is on.
 		const bool replaying = replay && !g_stateLoadPending && !replay->Done();
 		int gameFramesBefore = 0, vcountBefore = 0;
@@ -937,6 +944,8 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 		gpu->EndHostFrame();
 	}
 
+	if (sampling)
+		fprintf(stderr, "%s", SampleProfiler::StopAndReport(opt.sampleProfile).c_str());
 	if (replay) {
 		replay->Report();
 		if (!Rollback::IsSessionActive())
@@ -1232,6 +1241,7 @@ int main(int argc, const char* argv[]) {
 	testOptions.rollbackReplay = cmdLineOptions.rollbackReplay.value_or("");
 	testOptions.rollbackReplayShots = cmdLineOptions.rollbackReplayShots.value_or("");
 	testOptions.rollbackReplayLog = cmdLineOptions.rollbackReplayLog.value_or("");
+	testOptions.sampleProfile = cmdLineOptions.sampleProfile.value_or(0);
 	testOptions.maxScreenshotError = cmdLineOptions.maxScreenshotError.value_or(0.0);
 	testOptions.requiredDisableHLE = cmdLineOptions.disableHLE.value_or(0);
 	testOptions.debugger = cmdLineOptions.DebuggerPort().has_value();

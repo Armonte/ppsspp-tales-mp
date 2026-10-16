@@ -212,6 +212,8 @@ struct CommandLineOptions {
 	std::optional<std::string> rollbackReplay;
 	std::optional<std::string> rollbackReplayShots;
 	std::optional<std::string> rollbackReplayLog;
+	// Headless (Windows): sample the emu thread and print the top N functions at the end.
+	std::optional<int> sampleProfile;
 
 	std::optional<std::string> screenshotFilename;
 	std::optional<std::string> screenshotFilenameSave;

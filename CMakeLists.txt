@@ -1298,6 +1298,8 @@ if(HEADLESS)
 		headless/Compare.h
 		headless/ReverseEngineer.cpp
 		headless/ReverseEngineer.h
+		headless/SampleProfiler.cpp
+		headless/SampleProfiler.h
 	)
 	# Windows headless uses WindowsHeadlessHost even when the SDL frontend is built (PPSSPP_SDL_ON_WINDOWS).
 	if(SDL_LIB_TARGET AND NOT WIN32)
