@@ -250,7 +250,7 @@ int SasAtrac3::Concatenate(u32 bufPtr, u32 addbytes) {
 }
 
 void SasAtrac3::DoState(PointerWrap &p) {
-	auto s = p.Section("SasAtrac3", 1, 2);
+	auto s = p.Section("SasAtrac3", 1, 3);
 	if (!s)
 		return;
 
@@ -261,6 +261,22 @@ void SasAtrac3::DoState(PointerWrap &p) {
 	}
 	if (s >= 2) {
 		Do(p, end_);
+	}
+	if (s >= 3) {
+		// Samples decoded but not mixed yet. Without them, a load mixes different audio into the output buffer until
+		// the queue catches up (a rollback netplay desync). Only the queued bytes, not the whole queue buffer.
+		std::vector<u8> queued;
+		if (p.mode != PointerWrap::MODE_READ && sampleQueue_) {
+			queued.resize(sampleQueue_->getQueueSize());
+			sampleQueue_->get_front(queued.data(), (int)queued.size());
+		}
+		Do(p, queued);
+		if (p.mode == PointerWrap::MODE_READ) {
+			if (!sampleQueue_)
+				sampleQueue_ = new BufferQueue();
+			sampleQueue_->clear();
+			sampleQueue_->push(queued.data(), (int)queued.size());
+		}
 	}
 }
 
