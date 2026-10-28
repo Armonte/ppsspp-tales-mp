@@ -450,14 +450,14 @@ void MIPSState::DoState(PointerWrap &p) {
 		const std::vector<Rollback::RestoredRange> *restored = Rollback::RollbackLoadRestored();
 		// PPSSPP_RB_NO_JIT_KEEP: recreate the jit on rollback loads too (to tell whether keeping it changes anything).
 		static const bool noJitKeep = getenv("PPSSPP_RB_NO_JIT_KEEP") != nullptr;
-		if (restored && MIPSComp::jit && !noJitKeep) {
+		if (restored && jit && !noJitKeep) {
 			// A rollback load: everything below reloads the registers, and memory only changed where the load
 			// changed it, so keep the compiled blocks and drop just the ones there. Recreating the jit on every
 			// rollback costs more than the rest of the CPU state, and so did dropping every block on a written-back
 			// page: most of those pages only changed in data next to the code.
 			memset(vcmpResult, 0, sizeof(vcmpResult));
 			for (const Rollback::RestoredRange &range : *restored)
-				MIPSComp::jit->InvalidateCacheAt(range.start, range.end - range.start);
+				jit->InvalidateCacheAt(range.start, range.end - range.start);
 		} else if (jit && !keepJitBlocks_.empty()) {
 			// Blocks in code the load didn't change can stay. Queued invalidations stay too.
 			InitRegisters();
