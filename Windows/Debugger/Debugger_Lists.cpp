@@ -767,8 +767,8 @@ void CtrlBreakpointList::ImportBreakpoints() {
 			catch (...) { rejected++; continue; }
 			bool enabled = (!f[2].empty() && f[2] != "0");
 			bool log     = (!f[3].empty() && f[3] != "0");
-			g_breakpoints.AddBreakPoint(addr, false);
-			BreakAction action = BREAK_ACTION_IGNORE;
+			g_breakpoints.AddBreakPoint(addr);
+			BreakAction action = BREAK_ACTION_NONE;
 			if (enabled) action |= BREAK_ACTION_PAUSE;
 			if (log)     action |= BREAK_ACTION_LOG;
 			g_breakpoints.ChangeBreakPoint(addr, action);
@@ -799,7 +799,7 @@ void CtrlBreakpointList::ImportBreakpoints() {
 			else { rejected++; continue; }
 			bool enabled = (!f[4].empty() && f[4] != "0");
 			bool log     = (!f[5].empty() && f[5] != "0");
-			BreakAction action = BREAK_ACTION_IGNORE;
+			BreakAction action = BREAK_ACTION_NONE;
 			if (enabled) action |= BREAK_ACTION_PAUSE;
 			if (log)     action |= BREAK_ACTION_LOG;
 			g_breakpoints.AddMemCheck(start, end, cond, action);
@@ -851,11 +851,10 @@ void CtrlBreakpointList::ExportBreakpoints() {
 	out << "# EX  <addr>  <enabled:0|1>  <log:0|1>  <cond_expr>  <log_fmt>\n";
 	out << "# MEM <start> <end>  <cond:R|W|RW|RWC>  <enabled:0|1>  <log:0|1>  <cond_expr>  <log_fmt>\n";
 	for (const auto &bp : bps) {
-		if (bp.temporary) continue;
 		char addrBuf[16];
 		snprintf(addrBuf, sizeof(addrBuf), "0x%08X", bp.addr);
-		bool enabled = (bp.result & BREAK_ACTION_PAUSE) != 0;
-		bool log     = (bp.result & BREAK_ACTION_LOG) != 0;
+		bool enabled = (bp.action & BREAK_ACTION_PAUSE) != 0;
+		bool log     = (bp.action & BREAK_ACTION_LOG) != 0;
 		std::string cond = bp.hasCond ? EscapeForBPField(bp.cond.expressionString) : std::string();
 		std::string fmt  = EscapeForBPField(bp.logFormat);
 		out << "EX\t" << addrBuf << '\t' << (enabled ? 1 : 0) << '\t'
@@ -865,8 +864,8 @@ void CtrlBreakpointList::ExportBreakpoints() {
 		char startBuf[16], endBuf[16];
 		snprintf(startBuf, sizeof(startBuf), "0x%08X", mc.start);
 		snprintf(endBuf,   sizeof(endBuf),   "0x%08X", mc.end);
-		bool enabled = (mc.result & BREAK_ACTION_PAUSE) != 0;
-		bool log     = (mc.result & BREAK_ACTION_LOG) != 0;
+		bool enabled = (mc.action & BREAK_ACTION_PAUSE) != 0;
+		bool log     = (mc.action & BREAK_ACTION_LOG) != 0;
 		const char *condStr =
 			(mc.cond & MEMCHECK_WRITE_ONCHANGE) ? "RWC" :
 			(mc.cond == MEMCHECK_READWRITE) ? "RW" :

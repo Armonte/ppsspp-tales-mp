@@ -15,7 +15,7 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include <windows.h>
+#include "Common/CommonWindows.h"
 // EndpointFormFactor has an unscoped Microphone, which clashes with our namespace.
 #define Microphone EndpointFormFactor_Microphone
 #include <mmdeviceapi.h>

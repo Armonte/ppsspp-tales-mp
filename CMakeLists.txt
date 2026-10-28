@@ -1348,6 +1348,8 @@ if(HEADLESS)
 	endif()
 	if(WIN32)
 		target_link_libraries(PPSSPPHeadless d2d1 dwrite d3d11)
+		# Windows/CaptureDevice.cpp and W32Util need these; the Win32 frontend target brings them in, headless doesn't.
+		target_link_libraries(PPSSPPHeadless avrt comctl32 mfplat mfuuid mfreadwrite ole32 shlwapi uxtheme version)
 	endif()
 	setup_target_project(PPSSPPHeadless headless)
 endif()

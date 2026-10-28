@@ -309,7 +309,7 @@ void CtrlDisAsmView::assembleOpcode(u32 address, const std::string &defaultText)
 
 void CtrlDisAsmView::assembleFromClipboard(u32 address)
 {
-	auto memLock = Memory::Lock();
+	CoreShutdownLock coreLock = Core_LockAgainstShutdown();
 	if (!Core_IsStepping()) {
 		MessageBox(wnd, L"Cannot change code while the core is running!", L"Error", MB_OK);
 		return;
