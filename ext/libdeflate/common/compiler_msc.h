@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stdlib.h> /* for _byteswap_*() */
+#include <intrin.h> /* for _BitScan*() (cl gets them without it; clang-cl does not) */
 
 #define LIBEXPORT	__declspec(dllexport)
 
