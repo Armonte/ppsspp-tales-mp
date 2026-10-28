@@ -43,7 +43,7 @@ static const HidStickMapping g_psStickMappings[] = {
 	{HID_STICK_LX, JOYSTICK_AXIS_X},
 	{HID_STICK_LY, JOYSTICK_AXIS_Y},
 	{HID_STICK_RX, JOYSTICK_AXIS_Z},
-	{HID_STICK_RY, JOYSTICK_AXIS_RX},
+	{HID_STICK_RY, JOYSTICK_AXIS_RZ},
 };
 
 struct HidTriggerMapping {
@@ -171,7 +171,7 @@ void HidController::ReleaseAllKeys(const ButtonInputMapping *buttonMappings, int
 		JOYSTICK_AXIS_X,
 		JOYSTICK_AXIS_Y,
 		JOYSTICK_AXIS_Z,
-		JOYSTICK_AXIS_RX,
+		JOYSTICK_AXIS_RZ,
 		JOYSTICK_AXIS_LTRIGGER,
 		JOYSTICK_AXIS_RTRIGGER,
 	};
@@ -205,7 +205,9 @@ bool HidController::IssueRead() {
 }
 
 void HidController::ProcessReport(DWORD bytesRead, bool sendInput) {
-	HIDControllerState state{};
+	// The parsers leave the state alone for reports they don't understand (short reads, unknown types), so start
+	// from the previous one: a zeroed state would release everything, and a zero hat value is DPAD up.
+	HIDControllerState state = prevState_;
 	bool parsed = false;
 	const ButtonInputMapping *buttonMappings = nullptr;
 	size_t buttonMappingsSize = 0;
@@ -278,6 +280,19 @@ void HidController::ProcessReport(DWORD bytesRead, bool sendInput) {
 	prevState_ = state;
 }
 
+void HidController::Disconnect() {
+	const ButtonInputMapping *buttonMappings = nullptr;
+	size_t buttonMappingsSize = 0;
+	if (subType_ == HIDControllerType::SwitchPro) {
+		GetSwitchButtonInputMappings(&buttonMappings, &buttonMappingsSize);
+	} else {
+		GetPSButtonInputMappings(&buttonMappings, &buttonMappingsSize);
+	}
+	KeyMap::NotifyPadDisconnected(DeviceID());
+	ReleaseAllKeys(buttonMappings, (int)buttonMappingsSize);
+	prevState_ = {};
+}
+
 bool HidController::UpdateState(bool sendInput) {
 	// Make sure a read is in flight.
 	if (!readPending_) {
@@ -297,14 +312,12 @@ bool HidController::UpdateState(bool sendInput) {
 			}
 			// Genuine error -- treat as disconnected.
 			INFO_LOG(Log::System, "HID controller (slot %d) read failed - assuming disconnected.", pad_);
-			KeyMap::NotifyPadDisconnected(DeviceID());
 			return false;
 		}
 		readPending_ = false;
 		ProcessReport(bytesRead, sendInput);
 		if (!IssueRead()) {
 			INFO_LOG(Log::System, "HID controller (slot %d) read failed - assuming disconnected.", pad_);
-			KeyMap::NotifyPadDisconnected(DeviceID());
 			return false;
 		}
 	}
@@ -382,7 +395,7 @@ void HidInputDevice::ScanForNewControllers() {
 				break;
 			}
 		}
-		if (alreadyOpen) {
+		if (alreadyOpen || ignoreHidDevicePaths_.count(devicePath)) {
 			continue;
 		}
 
@@ -402,8 +415,9 @@ void HidInputDevice::ScanForNewControllers() {
 
 		const HIDControllerInfo *info = GetGamepadInfo(attr);
 		if (!info) {
-			// Some other HID device (keyboard, mouse, unsupported pad).
+			// Some other HID device (keyboard, mouse, unsupported pad). Remember it, so later scans don't open it again.
 			CloseHandle(handle);
+			ignoreHidDevicePaths_.insert(devicePath);
 			continue;
 		}
 
@@ -445,7 +459,22 @@ void HidInputDevice::ScanForNewControllers() {
 	SetupDiDestroyDeviceInfoList(deviceInfoSet);
 }
 
+void HidInputDevice::DisconnectAll() {
+	for (auto &controller : controllers_) {
+		controller->Disconnect();
+	}
+	controllers_.clear();
+}
+
 int HidInputDevice::UpdateState() {
+	if (!g_Config.bAllowHIDInput) {
+		// Don't keep the devices open, or read them on the shared input thread, when HID input is off.
+		if (!controllers_.empty()) {
+			DisconnectAll();
+		}
+		return 0;
+	}
+
 	// Throttled scan for newly-plugged controllers. We only enumerate when
 	// there's a free slot -- the SetupDi scan isn't free, and running it on the
 	// hot path every frame is exactly what stalls input reads.
@@ -458,14 +487,13 @@ int HidInputDevice::UpdateState() {
 		pollCount_--;
 	}
 
-	const bool sendInput = g_Config.bAllowHIDInput;
-
 	for (size_t i = 0; i < controllers_.size(); ) {
-		if (controllers_[i]->UpdateState(sendInput)) {
+		if (controllers_[i]->UpdateState(true)) {
 			++i;
 		} else {
-			// Read failed -> treat as disconnected. Dropping it frees the pad
+			// Read failed -> treat as disconnected. Release what it held, then drop it: that frees the pad
 			// slot, so a later scan can pick the controller back up.
+			controllers_[i]->Disconnect();
 			controllers_.erase(controllers_.begin() + i);
 		}
 	}

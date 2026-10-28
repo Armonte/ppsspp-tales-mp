@@ -7,6 +7,7 @@
 #include <set>
 #include <string>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 #include "Common/CommonTypes.h"
@@ -63,6 +64,9 @@ public:
 
 	int Pad() const { return pad_; }
 	const std::wstring &DevicePath() const { return devicePath_; }
+	// Releases everything this controller reports as held and tells KeyMap it's gone. Call before dropping it,
+	// or whatever was held at the disconnect stays held.
+	void Disconnect();
 
 private:
 	// Queues an asynchronous read. Returns false on a genuine device error.
@@ -108,7 +112,13 @@ private:
 	void ScanForNewControllers();
 	int FirstFreePadSlot() const;
 
+	// Drops every controller (Disconnect() first).
+	void DisconnectAll();
+
 	std::vector<std::unique_ptr<HidController>> controllers_;
+	// HID devices that aren't a supported gamepad (keyboards, mice, ...): skipped on later scans instead of being
+	// opened again every time.
+	std::unordered_set<std::wstring> ignoreHidDevicePaths_;
 	int pollCount_ = 0;
 	enum {
 		POLL_FREQ = 709,  // a prime number.
