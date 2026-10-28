@@ -33,6 +33,7 @@
  */
 #define _USE_MATH_DEFINES
 
+#include <cstddef>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -765,6 +766,40 @@ int atrac3_decode_frame(ATRAC3Context *ctx, float *out_data[2], int *nb_samples,
     }
 
     return block_align;
+}
+
+int atrac3_snapshot_size(const ATRAC3Context *ctx) {
+    return (int)(sizeof(ATRAC3Context) + ctx->channels * sizeof(ChannelUnit));
+}
+
+void atrac3_snapshot_save(const ATRAC3Context *ctx, uint8_t *out) {
+    memcpy(out, ctx, sizeof(ATRAC3Context));
+    // Load ignores the context's own pointers and setup (bit reader, units, scratch buffer, gain/MDCT tables).
+    // Zero them, so a snapshot doesn't depend on where the decoder was allocated (rollback netplay checksums it).
+    memset(out + offsetof(ATRAC3Context, gb), 0, sizeof(ctx->gb));
+    memset(out + offsetof(ATRAC3Context, units), 0, sizeof(ctx->units));
+    memset(out + offsetof(ATRAC3Context, decoded_bytes_buffer), 0, sizeof(ctx->decoded_bytes_buffer));
+    memset(out + offsetof(ATRAC3Context, gainc_ctx), 0, sizeof(ctx->gainc_ctx));
+    memset(out + offsetof(ATRAC3Context, mdct_ctx), 0, sizeof(ctx->mdct_ctx));
+    memcpy(out + sizeof(ATRAC3Context), ctx->units, ctx->channels * sizeof(ChannelUnit));
+}
+
+bool atrac3_snapshot_load(ATRAC3Context *ctx, const uint8_t *in, int size) {
+    ATRAC3Context saved;
+    if (size != atrac3_snapshot_size(ctx))
+        return false;
+    memcpy(&saved, in, sizeof(saved));
+    if (saved.channels != ctx->channels || saved.block_align != ctx->block_align)
+        return false;
+    ctx->coding_mode = saved.coding_mode;
+    memcpy(ctx->matrix_coeff_index_prev, saved.matrix_coeff_index_prev, sizeof(ctx->matrix_coeff_index_prev));
+    memcpy(ctx->matrix_coeff_index_now, saved.matrix_coeff_index_now, sizeof(ctx->matrix_coeff_index_now));
+    memcpy(ctx->matrix_coeff_index_next, saved.matrix_coeff_index_next, sizeof(ctx->matrix_coeff_index_next));
+    memcpy(ctx->weighting_delay, saved.weighting_delay, sizeof(ctx->weighting_delay));
+    memcpy(ctx->temp_buf, saved.temp_buf, sizeof(ctx->temp_buf));
+    ctx->scrambled_stream = saved.scrambled_stream;
+    memcpy(ctx->units, in + sizeof(ATRAC3Context), ctx->channels * sizeof(ChannelUnit));
+    return true;
 }
 
 void atrac3_flush_buffers(ATRAC3Context *c) {

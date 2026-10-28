@@ -336,7 +336,7 @@ void Atrac2::DumpBufferToFile() {
 }
 
 void Atrac2::DoState(PointerWrap &p) {
-	auto s = p.Section("Atrac2", 1, 4);
+	auto s = p.Section("Atrac2", 1, 5);
 	if (!s)
 		return;
 
@@ -376,6 +376,12 @@ void Atrac2::DoState(PointerWrap &p) {
 
 	if (p.mode == p.MODE_READ && info.state != ATRAC_STATUS_NO_DATA) {
 		CreateDecoder(info.codec, info.sampleSize, info.numChan, jointStereo_);
+	}
+
+	if (s >= 5) {
+		// Without the history, the frames decoded right after a load differ from the original run (rollback
+		// netplay re-simulates from loads).
+		DoDecoderHistory(p);
 	}
 }
 

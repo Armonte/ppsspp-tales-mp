@@ -237,6 +237,36 @@ static size_t ViewSpan(MemMapSetupFlags flags) {
 }
 #endif
 
+// Arena offset of each view, recorded when it's mapped (see GetMappedViews).
+
+std::vector<MappedView> GetMappedViews() {
+	std::vector<MappedView> result;
+	for (int i = 0; i < ARRAY_SIZE(views); i++) {
+		const MemoryView &view = views[i];
+		if (view.size == 0 || !view.out_ptr || !*view.out_ptr)
+			continue;
+		result.push_back(MappedView{ *view.out_ptr, view.virtual_address, view.size, viewPositions[i] });
+	}
+	return result;
+}
+
+u8 *CreateWritableAlias(u32 guestAddress, u32 size) {
+	for (const MappedView &view : GetMappedViews()) {
+		if (view.guestAddress == guestAddress)
+			return (u8 *)g_arena.CreateView((s64)view.arenaOffset, size, nullptr);
+	}
+	return nullptr;
+}
+
+void ReleaseWritableAlias(u8 *alias, u32 guestAddress, u32 size) {
+	for (const MappedView &view : GetMappedViews()) {
+		if (view.guestAddress == guestAddress) {
+			g_arena.ReleaseView((s64)view.arenaOffset, alias, size);
+			return;
+		}
+	}
+}
+
 static bool Memory_TryBase(MemMapSetupFlags flags) {
 	// OK, we know where to find free space. Now grab it!
 	// We just mimic the popular BAT setup.
@@ -608,6 +638,12 @@ static void DoMemoryVoid(PointerWrap &p, uint32_t start, uint32_t size, RamCompa
 	storage += size;
 }
 
+static bool g_stateExcludesBulkMemory = false;
+
+void SetStateExcludesBulkMemory(bool exclude) {
+	g_stateExcludesBulkMemory = exclude;
+}
+
 void DoState(PointerWrap &p, RamCompare *compare) {
 	auto s = p.Section("Memory", 1, 3);
 	if (!s)
@@ -661,10 +697,12 @@ void DoState(PointerWrap &p, RamCompare *compare) {
 	if (g_MemorySize != memorySizeBefore) {
 		compare = nullptr;
 	}
-	DoMemoryVoid(p, PSP_GetKernelMemoryBase(), g_MemorySize, compare);
+	if (!g_stateExcludesBulkMemory)
+		DoMemoryVoid(p, PSP_GetKernelMemoryBase(), g_MemorySize, compare);
 	p.DoMarker("RAM");
 
-	DoMemoryVoid(p, PSP_GetVidMemBase(), VRAM_SIZE);
+	if (!g_stateExcludesBulkMemory)
+		DoMemoryVoid(p, PSP_GetVidMemBase(), VRAM_SIZE);
 	p.DoMarker("VRAM");
 	DoArray(p, m_pPhysicalScratchPad, SCRATCHPAD_SIZE);
 	p.DoMarker("ScratchPad");

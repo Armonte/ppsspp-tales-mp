@@ -34,6 +34,7 @@
 #include "Core/HLE/__sceAudio.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/MIPS/MeCore.h"
+#include "Core/Rollback/Trace.h"
 
 static const int initialHz = 222000000;
 int CPU_HZ = 222000000;
@@ -405,6 +406,8 @@ void ProcessEvents() {
 			Event *evt = first;
 			first = first->next;
 			if (evt->type >= 0 && evt->type < (int)event_types.size()) {
+				if (Rollback::Tracing())
+					Rollback::TraceLine("ev %s late=%lld ud=%llx", event_types[evt->type].name, (long long)(GetTicks(currentMIPS) - evt->time), (unsigned long long)evt->userdata);
 				event_types[evt->type].callback(evt->userdata, (int)(GetTicks(currentMIPS) - evt->time));
 			} else {
 				_dbg_assert_msg_(false, "Bad event type %d", evt->type);

@@ -200,6 +200,20 @@ struct CommandLineOptions {
 	std::optional<int> instance;
 	std::optional<bool> realtime;
 	std::optional<bool> adhocServer;
+	// Headless: rollback netplay stress test (check distance), fuzzed input, and the frame to start it at.
+	std::optional<int> rollbackStress;
+	std::optional<bool> rollbackFuzz;
+	std::optional<int> rollbackStart;
+	std::optional<std::string> rollbackDiag;
+	std::optional<bool> rollbackFullStates;
+	std::optional<bool> rollbackHashPages;
+	std::optional<bool> rollbackValidatePages;
+	// Headless: play a recording's inputs (.budarec), screenshots along the way, per-frame timeline.
+	std::optional<std::string> rollbackReplay;
+	std::optional<std::string> rollbackReplayShots;
+	std::optional<std::string> rollbackReplayLog;
+	// Headless (Windows): sample the emu thread and print the top N functions at the end.
+	std::optional<int> sampleProfile;
 
 	std::optional<std::string> screenshotFilename;
 	std::optional<std::string> screenshotFilenameSave;

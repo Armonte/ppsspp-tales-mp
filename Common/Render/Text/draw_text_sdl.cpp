@@ -19,6 +19,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_properties.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <clocale>
 
 #if defined(USE_SDL3_TTF_FRIBIDI)
 #include <fribidi.h>

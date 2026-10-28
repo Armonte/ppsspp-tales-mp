@@ -47,6 +47,7 @@
 #include "Core/HLE/ErrorCodes.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/sceDisplay.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceNet.h"
 #include "Core/HLE/scePower.h"
@@ -124,6 +125,12 @@ static double curFrameTime;
 static double lastFrameTime;
 static double nextFrameTime;
 static int numVBlanksSinceFlip;
+// Frames the game finished: flips after it set a framebuffer, or the 10th without one. For a game that sets one per
+// new frame, these are the vblanks that end a host frame without the rollback lockdown (with duplicate frames off).
+// Counted from what the game does rather than what the host GPU drew. For tests.
+static int numGameFrames;
+static int numVBlanksSinceGameFrame;
+static bool gameSetFramebuf;
 // Host timestamp of the last flip we let through, for the fast-forward flip limiter in
 // __DisplayFlip. Up here with the rest of them so a boot resets it - as a static inside the
 // function it kept a timestamp from whatever ran before, and the first flip of a new game was
@@ -202,6 +209,9 @@ void __DisplayInit() {
 	height = 272;
 	numSkippedFrames = 0;
 	numVBlanksSinceFlip = 0;
+	numGameFrames = 0;
+	numVBlanksSinceGameFrame = 0;
+	gameSetFramebuf = false;
 	flippedThisFrame = false;
 	framebufIsLatched = false;
 	framebuf.topaddr = 0x04000000;
@@ -249,7 +259,7 @@ static void SanitizeLoadedFramebuf(FrameBufferState &fb) {
 }
 
 void __DisplayDoState(PointerWrap &p) {
-	auto s = p.Section("sceDisplay", 1, 8);
+	auto s = p.Section("sceDisplay", 1, 9);
 	if (!s)
 		return;
 
@@ -331,8 +341,10 @@ void __DisplayDoState(PointerWrap &p) {
 		Do(p, lastFlipCycles);
 		Do(p, nextFlipCycles);
 	}
-	if (p.mode == p.MODE_READ) {
-		// Not saved. Start counting again rather than carry over the session before the load.
+	if (s >= 9) {
+		// Whether sceDisplaySetFrameBuf delays the game (ForceMax60FPS games), so a load must restore it.
+		Do(p, lastFlipsTooFrequent);
+	} else if (p.mode == p.MODE_READ) {
 		lastFlipsTooFrequent = 0;
 	}
 
@@ -638,6 +650,10 @@ void __DisplaySetDisplayLayoutConfig(const DisplayLayoutConfig &config) {
 	g_displayLayoutConfigCached = config;
 }
 
+int __DisplayGetGameFrames() {
+	return numGameFrames;
+}
+
 void __DisplayFlip(int cyclesLate) {
 	if (!gpu) {
 		_dbg_assert_(gpu);
@@ -671,7 +687,11 @@ void __DisplayFlip(int cyclesLate) {
 
 	Draw::DrawContext *draw = gpu->GetDrawContext();
 
-	bool needFlip = fbDirty || noRecentFlip || postEffectRequiresFlip;
+	// Rollback netplay: every vblank ends a host frame, flipped or not, so a netplay frame is always one vblank
+	// (fixed 59.94 Hz pacing and one input sample each). Otherwise a game that draws at 30 fps, or holds a frame,
+	// covers several vblanks per host frame and runs fast in a frontend that runs one frame per refresh.
+	const bool frameEveryVblank = Rollback::IsLockedDown();
+	bool needFlip = fbDirty || noRecentFlip || postEffectRequiresFlip || frameEveryVblank;
 	if (!needFlip) {
 		// Okay, there's no new frame to draw, game might be sitting in a static loading screen
 		// or similar, and not long enough to trigger noRecentFlip. But audio may be playing, so we need to time still.
@@ -713,7 +733,7 @@ void __DisplayFlip(int cyclesLate) {
 
 	bool nextFrame = false;
 
-	if (fbReallyDirty || noRecentFlip || postEffectRequiresFlip) {
+	if (fbReallyDirty || noRecentFlip || postEffectRequiresFlip || frameEveryVblank) {
 		// Check first though, might've just quit / been paused.
 		if (!forceNoFlip) {
 			nextFrame = Core_NextFrame();
@@ -731,6 +751,11 @@ void __DisplayFlip(int cyclesLate) {
 
 	if (fbDirty) {
 		gpuStats.totals.numFlips++;
+	}
+	if (gameSetFramebuf || ++numVBlanksSinceGameFrame >= 10) {
+		numGameFrames++;
+		numVBlanksSinceGameFrame = 0;
+		gameSetFramebuf = false;
 	}
 
 	float scaledTimestep = (float)numVBlanksSinceFlip * timePerVblank;
@@ -910,6 +935,7 @@ static u32 sceDisplaySetMode(int displayMode, int displayWidth, int displayHeigh
 }
 
 void __DisplaySetFramebuf(u32 topaddr, int linesize, int pixelFormat, int sync) {
+	gameSetFramebuf = true;
 	FrameBufferState fbstate = {0};
 	fbstate.topaddr = topaddr;
 	fbstate.fmt = (GEBufferFormat)pixelFormat;

@@ -31,6 +31,9 @@ void Register_sceDisplay();
 bool __DisplayGetFramebuf(PSPPointer<u8> *topaddr, u32 *linesize, GEBufferFormat *pixelFormat, int mode);
 void __DisplaySetFramebuf(u32 topaddr, int linesize, int pixelformat, int sync);
 
+// Frames the game has finished: new frames drawn, or 10 vblanks without one. Host-side count, for tests.
+int __DisplayGetGameFrames();
+
 // Call this when resuming to avoid a small speedup burst
 void __DisplaySetWasPaused();
 

@@ -2106,6 +2106,19 @@ void GPUCommon::DoState(PointerWrap &p) {
 		}
 		recorder_.RestartAfterLoad();
 	}
+	if (s >= 8) {
+		// Where the search for the next free list starts. The list ID sceGeListEnQueue returns is game-visible,
+		// so a load must restore it (rollback netplay re-simulates from loads).
+		Do(p, nextListID);
+	} else if (s == 7 && p.mode == PointerWrap::MODE_READ && p.GetPPtr() && *p.GetPPtr()) {
+		// the libretro rollback core saves v7 with nextListID added here. It's at most DisplayListMaxCount (it's stored as the
+		// last ID + 1), so never the section's end marker (0x42), which is what follows in our v7.
+		u32 next;
+		memcpy(&next, *p.GetPPtr(), sizeof(next));
+		static_assert(DisplayListMaxCount < 0x42, "nextListID must not look like a section marker");
+		if (next <= DisplayListMaxCount)
+			Do(p, nextListID);
+	}
 }
 
 void GPUCommon::InterruptStart(int listid) {

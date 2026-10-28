@@ -131,8 +131,9 @@ static void MEEnsureRam() {
 	}
 }
 
-// When the Media Engine finishes the last job it was given. Not serialized: after a load it's
-// simply free.
+// When the Media Engine finishes the last job it was given (emulated global time). Saved since v2:
+// a SAS mix queued behind an ATRAC decode finished earlier after a load that freed the ME, which
+// moved the SAS thread's wakeup (rollback netplay desync, Tekken: Dark Resurrection).
 static s64 g_meBusyUntilUs;
 
 int MEScheduleJob(int us) {
@@ -194,11 +195,11 @@ void __VideocodecShutdown() {
 
 void __VideocodecDoState(PointerWrap &p) {
 	if (p.mode == p.MODE_READ) {
-		// Not serialized, and the clock it was measured against just moved (maybe backwards).
+		// Older states don't have it, and the clock it was measured against just moved (maybe backwards).
 		g_meBusyUntilUs = 0;
 	}
 
-	auto s = p.Section("sceVideocodec", 0, 1);
+	auto s = p.Section("sceVideocodec", 0, 2);
 	if (!s) {
 		if (p.mode == p.MODE_READ) {
 			// A state from before this module. Don't keep the contexts and ME memory of the session
@@ -257,6 +258,10 @@ void __VideocodecDoState(PointerWrap &p) {
 		// From when the ME had 2MB. Its allocations stay where they are, and its allocator keeps
 		// the old upper bound.
 		g_meRam.resize(ME_MEM_SIZE, 0);
+	}
+
+	if (s >= 2) {
+		Do(p, g_meBusyUntilUs);
 	}
 }
 

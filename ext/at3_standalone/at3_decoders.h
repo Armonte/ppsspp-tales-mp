@@ -23,7 +23,19 @@ int atrac3_decode_frame(ATRAC3Context *ctx, float *out_data[2], int *nb_samples,
 // marker. The PSP reports that differently from other bad frames.
 #define ATRAC3_ERROR_JOINT_STEREO_MARKER (-0x183)
 
+// Snapshots of the decoder's history (everything carried from one frame to the next), so a savestate load can
+// continue decoding exactly where the save left off. Pointer-free: it restores into any decoder with the same
+// channels and block_align. The layout follows the build's structs, so it only round-trips within one build;
+// load refuses a snapshot whose size doesn't match.
+int atrac3_snapshot_size(const ATRAC3Context *ctx);
+void atrac3_snapshot_save(const ATRAC3Context *ctx, uint8_t *out);
+bool atrac3_snapshot_load(ATRAC3Context *ctx, const uint8_t *in, int size);
+
 ATRAC3PContext *atrac3p_alloc(int channels, int *block_align);
 void atrac3p_free(ATRAC3PContext *ctx);
 void atrac3p_flush_buffers(ATRAC3PContext *ctx);
 int atrac3p_decode_frame(ATRAC3PContext *ctx, float *out_data[2], int *nb_samples, const uint8_t *buf, int buf_size);
+
+int atrac3p_snapshot_size(const ATRAC3PContext *ctx);
+void atrac3p_snapshot_save(const ATRAC3PContext *ctx, uint8_t *out);
+bool atrac3p_snapshot_load(ATRAC3PContext *ctx, const uint8_t *in, int size);

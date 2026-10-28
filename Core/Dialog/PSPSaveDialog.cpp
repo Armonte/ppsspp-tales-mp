@@ -39,6 +39,7 @@
 #include "Core/MemMapHelpers.h"
 #include "Core/Config.h"
 #include "Core/Reporting.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/SaveState.h"
 
 static double g_lastSaveTime = -1.0;
@@ -1259,6 +1260,11 @@ void PSPSaveDialog::StartIOThread() {
 	}
 
 	ioThreadStatus = SAVEIO_PENDING;
+	if (Rollback::IsLockedDown()) {
+		// Rollback lockdown: do the IO now, so the game sees it finish at the same point on every peer.
+		ExecuteIOAction();
+		return;
+	}
 	ioThread = std::thread([this]() {
 		SetCurrentThreadName("SaveIO");
 
@@ -1419,8 +1425,13 @@ void PSPSaveDialog::DoState(PointerWrap &p) {
 	// Just reset it.
 	bool hasParam = param.GetPspParam() != NULL;
 	Do(p, hasParam);
-	if (hasParam && p.mode == p.MODE_READ) {
-		param.SetPspParam(&request);
+	if (p.mode == p.MODE_READ) {
+		if (hasParam) {
+			param.SetPspParam(&request);
+		} else {
+			// Otherwise a request from before the load stays attached (rollback netplay re-simulates from loads).
+			param.ForgetPspParam();
+		}
 	}
 	Do(p, requestAddr);
 	Do(p, currentSelectedSave);

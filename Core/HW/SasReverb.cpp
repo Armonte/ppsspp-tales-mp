@@ -18,7 +18,10 @@
 #include <cstdint>
 #include <cstring>
 
+#include "Common/Log.h"
 #include "Common/Math/math_util.h"
+#include "Common/Serialize/Serializer.h"
+#include "Common/Serialize/SerializeFuncs.h"
 #include "Core/Config.h"
 #include "Core/HW/SasAudio.h"
 #include "Core/HW/SasReverb.h"
@@ -186,6 +189,17 @@ const char *SasReverb::GetPresetName(int preset) {
 		return "Invalid";
 	}
 	return presets[preset].name;
+}
+
+void SasReverb::DoState(PointerWrap &p) {
+	Do(p, pos_);
+	if (p.mode == PointerWrap::MODE_READ && (pos_ < 0 || pos_ >= BUFSIZE)) {
+		ERROR_LOG(Log::SaveState, "Bad SAS reverb position %d", pos_);
+		p.SetError(p.ERROR_FAILURE);
+		pos_ = 0;
+		return;
+	}
+	DoArray(p, workspace_, BUFSIZE);
 }
 
 void SasReverb::SetPreset(int preset) {

@@ -77,6 +77,9 @@ struct StreamInfo {
 	int num;
 	int sid;
 	bool needsReset;
+	// Explicit, so zero-initializing a StreamInfo also zeroes what used to be padding: the struct is saved as raw
+	// bytes, and savestates are compared byte for byte (rollback netplay).
+	u8 pad[3];
 };
 
 static const int MPEG_DATA_ES_BUFFERS = 2;
@@ -93,35 +96,35 @@ struct MpegContext {
 
 	void DoState(PointerWrap &p);
 
-	u8 mpegheader[2048];
-	u32 defaultFrameWidth;
-	int videoFrameCount;
-	int audioFrameCount;
-	bool endOfAudioReached;
-	bool endOfVideoReached;
-	int videoPixelMode;
-	u32 mpegMagic;
-	int mpegVersion;
-	u32 mpegRawVersion;
-	u32 mpegOffset;
-	u32 mpegStreamSize;
-	s64 mpegFirstTimestamp;
-	s64 mpegLastTimestamp;
-	u32 mpegFirstDate;
-	u32 mpegLastDate;
-	u32 mpegRingbufferAddr;
-	int mpegwarmUp;
-	bool esBuffers[MPEG_DATA_ES_BUFFERS];
-	AvcContext avc;
+	u8 mpegheader[2048]{};
+	u32 defaultFrameWidth{};
+	int videoFrameCount{};
+	int audioFrameCount{};
+	bool endOfAudioReached{};
+	bool endOfVideoReached{};
+	int videoPixelMode{};
+	u32 mpegMagic{};
+	int mpegVersion{};
+	u32 mpegRawVersion{};
+	u32 mpegOffset{};
+	u32 mpegStreamSize{};
+	s64 mpegFirstTimestamp{};
+	s64 mpegLastTimestamp{};
+	u32 mpegFirstDate{};
+	u32 mpegLastDate{};
+	u32 mpegRingbufferAddr{};
+	int mpegwarmUp{};
+	bool esBuffers[MPEG_DATA_ES_BUFFERS]{};
+	AvcContext avc{};
 
-	bool avcRegistered;
-	bool atracRegistered;
-	bool pcmRegistered;
-	bool dataRegistered;
+	bool avcRegistered{};
+	bool atracRegistered{};
+	bool pcmRegistered{};
+	bool dataRegistered{};
 
-	bool ignoreAtrac;
-	bool ignorePcm;
-	bool ignoreAvc;
+	bool ignoreAtrac{};
+	bool ignorePcm{};
+	bool ignoreAvc{};
 
 	bool isAnalyzed = false;
 	bool ringbufferNeedsReverse = false;

@@ -51,6 +51,7 @@
 #include "Core/HLE/KernelThreadDebugInterface.h"
 #include "Core/HLE/KernelWaitHelpers.h"
 #include "Core/HLE/ThreadQueueList.h"
+#include "Core/Rollback/Trace.h"
 
 struct WaitTypeNames {
 	WaitType type;
@@ -535,7 +536,7 @@ static int eventBusySyscallDone = -1;
 static void __KernelBusySyscallDone(u64 userdata, int cyclesLate);
 static SceUID currentThread;
 // When the running thread last changed, so each thread can be billed for the time it actually ran
-// (nt.runForClocks). Not serialized - it's re-based on load, which only skews the very first slice.
+// (nt.runForClocks). Serialized since sceKernelThread v8; older states re-base it on load.
 static u64 lastContextSwitchUs = 0;
 static PSPThread *currentThreadPtr;
 static u32 idleThreadHackAddr;
@@ -896,7 +897,7 @@ void __KernelThreadingDoState(PointerWrap &p)
 		g_exitCallbackPending = false;
 	}
 
-	auto s = p.Section("sceKernelThread", 1, 7);
+	auto s = p.Section("sceKernelThread", 1, 8);
 	if (!s)
 		return;
 
@@ -991,12 +992,15 @@ void __KernelThreadingDoState(PointerWrap &p)
 	if (s >= 3)
 		Do(p, pendingDeleteThreads);
 
-	if (p.mode == p.MODE_READ) {
-		// Re-base rather than serialize, so a state saved before this existed doesn't bill one
-		// thread for the entire emulated time up to the save. Only on load: saving runs a measure
-		// pass and then a write pass, and re-basing in either would throw away the time the
-		// running thread had accumulated since the last switch - a save must not change what the
-		// game can observe.
+	if (s >= 8) {
+		// Saved since v8: a load must resume billing exactly where the save left off, or the running
+		// thread's runForClocks differs after the load (rollback netplay re-simulates from loads).
+		Do(p, lastContextSwitchUs);
+	} else if (p.mode == p.MODE_READ) {
+		// Older states: re-base rather than bill one thread for the entire emulated time up to the
+		// save. Only on load: saving runs a measure pass and then a write pass, and re-basing in
+		// either would throw away the time the running thread had accumulated since the last
+		// switch - a save must not change what the game can observe.
 		lastContextSwitchUs = CoreTiming::GetGlobalTimeUs();
 	}
 }
@@ -3309,6 +3313,8 @@ ThreadWaitInfo PSPThread::getWaitInfo() const {
 }
 
 void __KernelSwitchContext(PSPThread *target, const char *reason) {
+	if (Rollback::Tracing())
+		Rollback::TraceLine("switch -> %s (%s) pc=%08x", target ? target->GetName() : "(none)", reason ? reason : "", currentMIPS->pc);
 	u32 oldPC = 0;
 	SceUID oldUID = 0;
 	const char *oldName = hleCurrentThreadName != NULL ? hleCurrentThreadName : "(none)";

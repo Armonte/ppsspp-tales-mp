@@ -305,7 +305,8 @@ int sceKernelWaitEventFlag(SceUID id, u32 bits, u32 wait, u32 outBitsPtr, u32 ti
 	u32 error;
 	EventFlag *e = kernelObjects.Get<EventFlag>(id, error);
 	if (e) {
-		EventFlagTh th;
+		// Zeroed: it is saved as raw bytes, pausedTimeout included.
+		EventFlagTh th{};
 		if (!__KernelApplyEventFlagMatch(&e->nef.currentPattern, bits, wait, outBitsPtr)) {
 			// If this thread was left in waitingThreads after a timeout, remove it.
 			// Otherwise we might write the outBitsPtr in the wrong place.
@@ -360,7 +361,8 @@ int sceKernelWaitEventFlagCB(SceUID id, u32 bits, u32 wait, u32 outBitsPtr, u32 
 	u32 error;
 	EventFlag *e = kernelObjects.Get<EventFlag>(id, error);
 	if (e) {
-		EventFlagTh th;
+		// Zeroed: it is saved as raw bytes, pausedTimeout included.
+		EventFlagTh th{};
 		// We only check, not apply here.  This way the CLEAR/etc. options don't apply yet.
 		// If we run callbacks, we will check again after the callbacks complete.
 		bool doWait = !__KernelCheckEventFlagMatches(e->nef.currentPattern, bits, wait);

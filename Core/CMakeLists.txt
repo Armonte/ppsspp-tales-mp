@@ -670,6 +670,22 @@ add_library(Core STATIC
 	Reporting.h
 	Replay.cpp
 	Replay.h
+	Rollback/Lockdown.cpp
+	Rollback/DirtyTracker.cpp
+	Rollback/DirtyTracker.h
+	Rollback/Lockdown.h
+	Rollback/NetplaySession.cpp
+	Rollback/NetplaySession.h
+	Rollback/TekkenDR.cpp
+	Rollback/Trace.cpp
+	Rollback/Trace.h
+	Rollback/TekkenDR.h
+	Rollback/NetplayState.cpp
+	Rollback/NetplayState.h
+	Rollback/PageStore.cpp
+	Rollback/PageStore.h
+	Rollback/Profile.cpp
+	Rollback/Profile.h
 	SaveState.cpp
 	SaveState.h
 	SaveStateRewind.cpp
@@ -731,7 +747,7 @@ endif()
 
 list(APPEND CoreExtraLibs armips)
 
-target_link_libraries(Core GPU Common chdr kirk cityhash sfmt19937 xbrz xxhash libdeflate rcheevos at3_standalone lua
+target_link_libraries(Core GekkoNet GPU Common chdr kirk cityhash sfmt19937 xbrz xxhash libdeflate rcheevos at3_standalone lua
 	aemu_postoffice_client ${CoreExtraLibs} ${CMAKE_DL_LIBS})
 
 # Winsock

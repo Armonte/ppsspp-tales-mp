@@ -69,3 +69,7 @@
 [submodule "ext/oboe"]
 	path = ext/oboe
 	url = https://github.com/google/oboe.git
+[submodule "ext/gekkonet"]
+	path = ext/gekkonet
+	url = https://github.com/Armonte/GekkoNet.git
+	branch = fm2k

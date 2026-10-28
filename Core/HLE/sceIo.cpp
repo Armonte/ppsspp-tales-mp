@@ -61,6 +61,7 @@
 #include "ext/libkirk/amctrl.h"
 
 #include "Core/HLE/sceIo.h"
+#include "Core/Rollback/Lockdown.h"
 #include "Core/HLE/sceRtc.h"
 #include "Core/HLE/sceKernelMemory.h"
 #include "Core/HLE/sceKernelThread.h"
@@ -353,9 +354,18 @@ static void IoAsyncCleanupThread(int fd) {
 static int GetIOTimingMethod() {
 	if (PSP_CoreParameter().compat.flags().ForceUMDDelay) {
 		return IOTIMING_REALISTIC;
+	} else if (Rollback::IsLockedDown() && g_Config.iIOTimingMethod == IOTIMING_HOST) {
+		// Host timing waits for the host's disk, so it differs between peers.
+		return IOTIMING_FAST;
 	} else {
 		return g_Config.iIOTimingMethod;
 	}
+}
+
+// Large reads and writes normally run on the IO thread, which touches PSP memory at host-dependent times.
+// Under the rollback lockdown they run synchronously instead.
+static bool __IoCanUseThread() {
+	return __KernelIsDispatchEnabled() && ioManagerThreadEnabled && !Rollback::IsLockedDown();
 }
 
 static void TellFsThreadEnded (SceUID threadID) {
@@ -1141,7 +1151,7 @@ static bool __IoRead(int &result, int id, u32 data_addr, int size, int &us) {
 				return true;
 			}
 
-			bool useThread = __KernelIsDispatchEnabled() && ioManagerThreadEnabled && size > IO_THREAD_MIN_DATA_SIZE;
+			bool useThread = __IoCanUseThread() && size > IO_THREAD_MIN_DATA_SIZE;
 			if (useThread) {
 				// If there's a pending operation on this file, wait for it to finish and don't overwrite it.
 				useThread = !ioManager.HasOperation(f->handle);
@@ -1300,7 +1310,7 @@ static bool __IoWrite(int &result, int id, u32 data_addr, int size, int &us) {
 			return true;
 		}
 
-		bool useThread = __KernelIsDispatchEnabled() && ioManagerThreadEnabled && size > IO_THREAD_MIN_DATA_SIZE;
+		bool useThread = __IoCanUseThread() && size > IO_THREAD_MIN_DATA_SIZE;
 		if (useThread) {
 			// If there's a pending operation on this file, wait for it to finish and don't overwrite it.
 			useThread = !ioManager.HasOperation(f->handle);

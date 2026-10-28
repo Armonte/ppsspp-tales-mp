@@ -19,6 +19,7 @@
 #include "Common/Log/LogManager.h"
 #include "Common/System/OSD.h"
 
+#include "Core/Rollback/Profile.h"
 #include "Core/Core.h"
 #include "Core/Config.h"
 #include "Core/CwCheat.h"
@@ -254,7 +255,7 @@ void __KernelDoState(PointerWrap &p)
 			return;
 
 		Do(p, kernelRunning);
-		kernelObjects.DoState(p);
+		{ Rollback::ProfileNamedScope scope("kernelObjects.DoState", p.mode == p.MODE_READ); kernelObjects.DoState(p); }
 
 		if (s >= 2) {
 			Do(p, registeredExitCbId);
@@ -268,19 +269,19 @@ void __KernelDoState(PointerWrap &p)
 		if (!s)
 			return;
 
-		__InterruptsDoState(p);
+		{ Rollback::ProfileNamedScope scope("__InterruptsDoState", p.mode == p.MODE_READ); __InterruptsDoState(p); }
 		// Memory needs to be after kernel objects, which may free kernel memory.
-		__KernelMemoryDoState(p);
-		__KernelThreadingDoState(p);
-		__KernelAlarmDoState(p);
-		__KernelVTimerDoState(p);
-		__KernelEventFlagDoState(p);
-		__KernelMbxDoState(p);
-		__KernelModuleDoState(p);
-		__KernelMsgPipeDoState(p);
-		__KernelMutexDoState(p);
-		__KernelSemaDoState(p);
-		__KernelTimeDoState(p);
+		{ Rollback::ProfileNamedScope scope("__KernelMemoryDoState", p.mode == p.MODE_READ); __KernelMemoryDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelThreadingDoState", p.mode == p.MODE_READ); __KernelThreadingDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelAlarmDoState", p.mode == p.MODE_READ); __KernelAlarmDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelVTimerDoState", p.mode == p.MODE_READ); __KernelVTimerDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelEventFlagDoState", p.mode == p.MODE_READ); __KernelEventFlagDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelMbxDoState", p.mode == p.MODE_READ); __KernelMbxDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelModuleDoState", p.mode == p.MODE_READ); __KernelModuleDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelMsgPipeDoState", p.mode == p.MODE_READ); __KernelMsgPipeDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelMutexDoState", p.mode == p.MODE_READ); __KernelMutexDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelSemaDoState", p.mode == p.MODE_READ); __KernelSemaDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KernelTimeDoState", p.mode == p.MODE_READ); __KernelTimeDoState(p); }
 	}
 
 	{
@@ -288,48 +289,48 @@ void __KernelDoState(PointerWrap &p)
 		if (!s)
 			return;
 
-		__AtracDoState(p);
-		__AudioDoState(p);
-		__CccDoState(p);
-		__CtrlDoState(p);
-		__DisplayDoState(p);
-		__FontDoState(p);
-		__GeDoState(p);
-		__ImposeDoState(p);
-		__IoDoState(p);
-		__JpegDoState(p);
-		__Mp3DoState(p);
-		__MpegDoState(p);
-		__MpegBaseDoState(p);
-		__VideocodecDoState(p);
-		__KUBridgeDoState(p);
-		__NetDoState(p);
-		__NetAdhocDoState(p);
-		__PowerDoState(p);
-		__PsmfDoState(p);
-		__PsmfPlayerDoState(p);
-		__RtcDoState(p);
-		__SasDoState(p);
-		__SslDoState(p);
-		__UmdDoState(p);
-		__UtilityDoState(p);
-		__UsbDoState(p);
-		__VaudioDoState(p);
-		__HeapDoState(p);
+		{ Rollback::ProfileNamedScope scope("__AtracDoState", p.mode == p.MODE_READ); __AtracDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__AudioDoState", p.mode == p.MODE_READ); __AudioDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__CccDoState", p.mode == p.MODE_READ); __CccDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__CtrlDoState", p.mode == p.MODE_READ); __CtrlDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__DisplayDoState", p.mode == p.MODE_READ); __DisplayDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__FontDoState", p.mode == p.MODE_READ); __FontDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__GeDoState", p.mode == p.MODE_READ); __GeDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__ImposeDoState", p.mode == p.MODE_READ); __ImposeDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__IoDoState", p.mode == p.MODE_READ); __IoDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__JpegDoState", p.mode == p.MODE_READ); __JpegDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__Mp3DoState", p.mode == p.MODE_READ); __Mp3DoState(p); }
+		{ Rollback::ProfileNamedScope scope("__MpegDoState", p.mode == p.MODE_READ); __MpegDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__MpegBaseDoState", p.mode == p.MODE_READ); __MpegBaseDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__VideocodecDoState", p.mode == p.MODE_READ); __VideocodecDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__KUBridgeDoState", p.mode == p.MODE_READ); __KUBridgeDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__NetDoState", p.mode == p.MODE_READ); __NetDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__NetAdhocDoState", p.mode == p.MODE_READ); __NetAdhocDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__PowerDoState", p.mode == p.MODE_READ); __PowerDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__PsmfDoState", p.mode == p.MODE_READ); __PsmfDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__PsmfPlayerDoState", p.mode == p.MODE_READ); __PsmfPlayerDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__RtcDoState", p.mode == p.MODE_READ); __RtcDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__SasDoState", p.mode == p.MODE_READ); __SasDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__SslDoState", p.mode == p.MODE_READ); __SslDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__UmdDoState", p.mode == p.MODE_READ); __UmdDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__UtilityDoState", p.mode == p.MODE_READ); __UtilityDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__UsbDoState", p.mode == p.MODE_READ); __UsbDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__VaudioDoState", p.mode == p.MODE_READ); __VaudioDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__HeapDoState", p.mode == p.MODE_READ); __HeapDoState(p); }
 
-		__PPGeDoState(p);
-		__CheatDoState(p);
-		__sceAudiocodecDoState(p);
-		__VideoPmpDoState(p);
-		__AACDoState(p);
-		__UsbGpsDoState(p);
-		__UsbMicDoState(p);
-		__RegDoState(p);
+		{ Rollback::ProfileNamedScope scope("__PPGeDoState", p.mode == p.MODE_READ); __PPGeDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__CheatDoState", p.mode == p.MODE_READ); __CheatDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__sceAudiocodecDoState", p.mode == p.MODE_READ); __sceAudiocodecDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__VideoPmpDoState", p.mode == p.MODE_READ); __VideoPmpDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__AACDoState", p.mode == p.MODE_READ); __AACDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__UsbGpsDoState", p.mode == p.MODE_READ); __UsbGpsDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__UsbMicDoState", p.mode == p.MODE_READ); __UsbMicDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__RegDoState", p.mode == p.MODE_READ); __RegDoState(p); }
 		// These two were written long ago but never called, so older states lack them.
-		__DmacDoState(p);
-		__UsbCamDoState(p);
-		__NpDrmDoState(p);
-		__PopsBootDoState(p);
+		{ Rollback::ProfileNamedScope scope("__DmacDoState", p.mode == p.MODE_READ); __DmacDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__UsbCamDoState", p.mode == p.MODE_READ); __UsbCamDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__NpDrmDoState", p.mode == p.MODE_READ); __NpDrmDoState(p); }
+		{ Rollback::ProfileNamedScope scope("__PopsBootDoState", p.mode == p.MODE_READ); __PopsBootDoState(p); }
 
 		// IMPORTANT! Add new sections last!
 	}

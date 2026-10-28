@@ -40,6 +40,8 @@
 
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceRtc.h"
+#include "Core/Config.h"
+#include "Core/Rollback/Lockdown.h"
 
 #ifdef HAVE_LIBNX
 // I guess that works...
@@ -337,6 +339,25 @@ bool __RtcGetCurrentLocalTime(ScePspDateTime *t) {
 	return true;
 }
 
+// Offset of the PSP's local time from UTC, in seconds. Normally the host's timezone (without daylight saving,
+// as before); under the rollback lockdown the configured PSP timezone and daylight saving setting, so peers in
+// different timezones see the same local time.
+static int __RtcLocalOffsetSeconds() {
+	if (Rollback::IsLockedDown())
+		return g_Config.iTimeZone * 60 + (g_Config.bDayLightSavings ? 3600 : 0);
+#ifdef _WIN32
+	long timezone_val;
+	_get_timezone(&timezone_val);
+	return (int)-timezone_val;
+#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux) && !defined(HAVE_LIBNX)
+	time_t timezone = 0;
+	tm *time = localtime(&timezone);
+	return (int)time->tm_gmtoff;
+#else
+	return 0;
+#endif
+}
+
 static u32 sceRtcGetCurrentClockLocalTime(u32 pspTimePtr) {
 	auto pt = PSPPointer<ScePspDateTime>::Create(pspTimePtr);
 
@@ -344,7 +365,14 @@ static u32 sceRtcGetCurrentClockLocalTime(u32 pspTimePtr) {
 	__RtcTimeOfDay(&tv);
 
 	time_t sec = (time_t)tv.tv_sec;
-	const tm *local = localtime(&sec);
+	// Under the rollback lockdown, local time is the configured PSP timezone, not the host's.
+	const tm *local;
+	if (Rollback::IsLockedDown()) {
+		sec += __RtcLocalOffsetSeconds();
+		local = gmtime(&sec);
+	} else {
+		local = localtime(&sec);
+	}
 	if (!local) {
 		return hleLogError(Log::sceRtc, 0, "Date is too high/low to handle, pretending to work");
 	}
@@ -454,16 +482,7 @@ static int sceRtcConvertLocalTimeToUTC(u32 tickLocalPtr,u32 tickUTCPtr)
 	if (Memory::IsValidRange(tickLocalPtr, 8) && Memory::IsValidAddress(tickUTCPtr))
 	{
 		u64 srcTick = Memory::ReadUnchecked_U64(tickLocalPtr);
-		// TODO : Let the user select his timezone / daylight saving instead of taking system param ?
-#ifdef _WIN32
-		long timezone_val;
-		_get_timezone(&timezone_val);
-		srcTick -= -timezone_val * 1000000ULL;
-#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux) && !defined(HAVE_LIBNX)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		srcTick -= time->tm_gmtoff*1000000ULL;
-#endif
+		srcTick -= (s64)__RtcLocalOffsetSeconds() * 1000000LL;
 		Memory::WriteUnchecked_U64(srcTick, tickUTCPtr);
 	}
 	else
@@ -478,16 +497,7 @@ static int sceRtcConvertUtcToLocalTime(u32 tickUTCPtr, u32 tickLocalPtr)
 	DEBUG_LOG(Log::sceRtc, "sceRtcConvertLocalTimeToUTC(%d, %d)", tickLocalPtr, tickUTCPtr);
 	if (Memory::IsValidRange(tickLocalPtr, 8) && Memory::IsValidRange(tickUTCPtr, 8)) {
 		u64 srcTick = Memory::ReadUnchecked_U64(tickUTCPtr);
-		// TODO : Let the user select his timezone / daylight saving instead of taking system param ?
-#ifdef _WIN32
-		long timezone_val;
-		_get_timezone(&timezone_val);
-		srcTick += -timezone_val * 1000000ULL;
-#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux) && !defined(HAVE_LIBNX)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		srcTick += time->tm_gmtoff*1000000ULL;
-#endif
+		srcTick += (s64)__RtcLocalOffsetSeconds() * 1000000LL;
 		Memory::WriteUnchecked_U64(srcTick, tickLocalPtr);
 	} else {
 		return 1;
@@ -1072,16 +1082,7 @@ static int sceRtcFormatRFC2822LocalTime(u32 outPtr, u32 srcTickPtr)
 		return -1;
 	}
 
-	int tz_seconds;
-#ifdef _WIN32
-		long timezone_val;
-		_get_timezone(&timezone_val);
-		tz_seconds = -timezone_val;
-#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux) && !defined(HAVE_LIBNX)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		tz_seconds = time->tm_gmtoff;
-#endif
+	int tz_seconds = __RtcLocalOffsetSeconds();
 
 	DEBUG_LOG(Log::sceRtc, "sceRtcFormatRFC2822LocalTime(%08x, %08x)", outPtr, srcTickPtr);
 	return __RtcFormatRFC2822(outPtr, srcTickPtr, tz_seconds / 60);
@@ -1109,16 +1110,7 @@ static int sceRtcFormatRFC3339LocalTime(u32 outPtr, u32 srcTickPtr)
 		return -1;
 	}
 
-	int tz_seconds;
-#ifdef _WIN32
-		long timezone_val;
-		_get_timezone(&timezone_val);
-		tz_seconds = -timezone_val;
-#elif !defined(_AIX) && !defined(__sgi) && !defined(__hpux) && !defined(HAVE_LIBNX)
-		time_t timezone = 0;
-		tm *time = localtime(&timezone);
-		tz_seconds = time->tm_gmtoff;
-#endif
+	int tz_seconds = __RtcLocalOffsetSeconds();
 
 	DEBUG_LOG(Log::sceRtc, "sceRtcFormatRFC3339LocalTime(%08x, %08x)", outPtr, srcTickPtr);
 	return __RtcFormatRFC3339(outPtr, srcTickPtr, tz_seconds / 60);

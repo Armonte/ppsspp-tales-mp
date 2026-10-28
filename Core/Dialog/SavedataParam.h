@@ -334,6 +334,8 @@ public:
 		ignoreTextures_ = state;
 	}
 	int SetPspParam(SceUtilitySavedataParam* param);
+	// For loading a state without a request: drops the pointer only, keeping the save list DoState restored.
+	void ForgetPspParam() { pspParam = nullptr; }
 	SceUtilitySavedataParam *GetPspParam();
 	const SceUtilitySavedataParam *GetPspParam() const;
 

@@ -203,6 +203,22 @@ struct RamCompare {
 bool Init(MemMapSetupFlags flags);
 void Shutdown();
 void DoState(PointerWrap &p, RamCompare *compare = nullptr);
+// Rollback netplay: while set, DoState leaves out RAM and VRAM (the rollback page store keeps those).
+void SetStateExcludesBulkMemory(bool exclude);
+
+// A host mapping of guest memory. Every mirror (cached/uncached, user/kernel) is its own view; views with the same
+// arenaOffset show the same physical memory. For the rollback dirty-page tracker, which has to protect all of them.
+struct MappedView {
+	u8 *host;
+	u32 guestAddress;
+	u32 size;
+	size_t arenaOffset;
+};
+std::vector<MappedView> GetMappedViews();
+// A second, never write-protected mapping of the memory a view shows (RAM or VRAM), so the rollback page store can
+// restore pages without tripping its own write tracking. Null on failure.
+u8 *CreateWritableAlias(u32 guestAddress, u32 size);
+void ReleaseWritableAlias(u8 *alias, u32 guestAddress, u32 size);
 
 // False when shutdown has already been called.
 bool IsActive();

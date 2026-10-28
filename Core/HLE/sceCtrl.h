@@ -88,6 +88,12 @@ void __CtrlUpdateButtonsForPad(int pad, u32 bitsToSet, u32 bitsToClear);
 // Call this to set the position of an analog stick, ideally when it changes.
 // X and Y values should be from -1 to 1, inclusive, in a square (no need to force to a circle.)
 // No deadzone filtering is done (but note that this applies to the actual PSP as well.)
+// Rollback netplay: while active, each vblank samples these synced buttons/analog values instead of the
+// host's live input. Pass analog == nullptr for centered sticks.
+void __CtrlSetNetplayInput(bool active, u32 buttons, const u8 analog[2][2]);
+// The host's live analog values, as the PSP sees them (0..255, 128 = center).
+void __CtrlPeekAnalogRaw(u8 analog[2][2]);
+
 void __CtrlSetAnalogXY(int stick, float x, float y);
 void __CtrlSetAnalogX(int stick, float x);
 void __CtrlSetAnalogY(int stick, float y);

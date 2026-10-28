@@ -41,6 +41,8 @@
 #include "Common/TimeUtil.h"
 
 #include "Core/SaveState.h"
+#include "Core/Rollback/Lockdown.h"
+#include "Core/Rollback/Profile.h"
 #include "Core/Config.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -199,6 +201,25 @@ int g_screenshotFailures;
 		return CChunkFileReader::LoadPtr(&data[0], data.size(), state, errorString);
 	}
 
+	CChunkFileReader::Error SaveToBuffer(u8 *buffer, size_t capacity, size_t *savedSize) {
+		SaveStart state;
+		u8 *saved = buffer;
+		size_t size = capacity;
+		CChunkFileReader::Error err = CChunkFileReader::MeasureAndSavePtr(state, &saved, &size);
+		*savedSize = err == CChunkFileReader::ERROR_NONE ? size : 0;
+		return err;
+	}
+
+	CChunkFileReader::Error LoadFromBuffer(const u8 *buffer, size_t size, std::string *errorString) {
+		SaveStart state;
+		return CChunkFileReader::LoadPtr(const_cast<u8 *>(buffer), size, state, errorString);
+	}
+
+	size_t MeasureSaveSize() {
+		SaveStart state;
+		return CChunkFileReader::MeasurePtr(state);
+	}
+
 	// TODO: Should this be configurable?
 	// Should only fail if the game hasn't created a framebuffer yet. Some games play video without a framebuffer,
 	// we should probably just read back memory then instead (GTA for example). But this is a really unimportant edge case,
@@ -216,9 +237,15 @@ int g_screenshotFailures;
 		if (!s)
 			return;
 
+		using Rollback::ProfileScope;
+		using Rollback::ProfileStage;
+		const Rollback::ProfilePass pass = p.mode == p.MODE_READ ? Rollback::ProfilePass::Read : p.mode == p.MODE_MEASURE ? Rollback::ProfilePass::Measure : Rollback::ProfilePass::Write;
+
 		if (s >= 2) {
 			// This only increments on save, of course (once, not also in the measuring pass.)
-			if (p.mode == p.MODE_WRITE && countsAsSave) {
+			// Not for rollback netplay saves: peers save different numbers of times (they roll back different
+			// amounts), and the count is part of the state they compare.
+			if (p.mode == p.MODE_WRITE && countsAsSave && !Rollback::IsLockedDown()) {
 				++saveStateGeneration;
 			}
 			Do(p, saveStateGeneration);
@@ -242,34 +269,43 @@ int g_screenshotFailures;
 		}
 
 		// The state may hold different code. KernelModuleDoState hooks the functions again.
+		// Rollback loads restored RAM already (the page store) and leave the hooks to KernelModuleDoState, which
+		// keeps them when no code changed.
+		const bool rollbackLoad = p.mode == p.MODE_READ && Rollback::RollbackLoadRestored() != nullptr;
 		std::vector<std::pair<u32, u32>> hookedOps;
 		// The loaded modules' code is compared with the state's as it's loaded. Where it's the same,
-		// the JIT keeps its blocks, so they don't all have to be compiled again.
+		// the JIT keeps its blocks, so they don't all have to be compiled again. (Not for rollback loads:
+		// the page store restored RAM, and the JIT drops just the restored pages.)
 		Memory::RamCompare codeCompare;
-		if (p.mode == p.MODE_READ) {
+		if (p.mode == p.MODE_READ)
 			g_loadCount++;
+		if (p.mode == p.MODE_READ && !rollbackLoad) {
 			hookedOps = Replacement_GetHookedOps();
 			RestoreReplacedInstructions(0, 0xFFFFFFFF);
 			codeCompare.ranges = __KernelModuleCodeRanges();
 		}
-		Memory::DoState(p, &codeCompare);
-		if (p.mode == p.MODE_READ) {
-			Replacement_RepairStaleHookOps(hookedOps);
-			__KernelModuleSetUnchangedCodeOnLoad(codeCompare.unchanged);
-			currentMIPS->KeepJitBlocksOnNextLoad(std::move(codeCompare.unchanged));
+		{
+			ProfileScope scope(ProfileStage::Memory, pass);
+			Memory::DoState(p, rollbackLoad ? nullptr : &codeCompare);
+			if (p.mode == p.MODE_READ && !rollbackLoad) {
+				Replacement_RepairStaleHookOps(hookedOps);
+				__KernelModuleSetUnchangedCodeOnLoad(codeCompare.unchanged);
+				currentMIPS->KeepJitBlocksOnNextLoad(std::move(codeCompare.unchanged));
+			}
 		}
 
 		if (s >= 3) {
+			ProfileScope scope(ProfileStage::CoreTiming, pass);
 			CoreTiming::DoState(p);
 		}
 
-		MemoryStick_DoState(p);
-		currentMIPS->DoState(p);
-		HLEDoState(p);
-		__KernelDoState(p);
-		Achievements::DoState(p);
+		{ ProfileScope scope(ProfileStage::MemoryStick, pass); MemoryStick_DoState(p); }
+		{ ProfileScope scope(ProfileStage::MIPS, pass); currentMIPS->DoState(p); }
+		{ ProfileScope scope(ProfileStage::HLE, pass); HLEDoState(p); }
+		{ ProfileScope scope(ProfileStage::Kernel, pass); __KernelDoState(p); }
+		{ ProfileScope scope(ProfileStage::Achievements, pass); Achievements::DoState(p); }
 		// Kernel object destructors might close open files, so do the filesystem last.
-		pspFileSystem.DoState(p);
+		{ ProfileScope scope(ProfileStage::FileSystem, pass); pspFileSystem.DoState(p); }
 		if (s >= 4) {
 			MMIO::DoState(p);
 		} else if (p.mode == p.MODE_READ) {

@@ -34,6 +34,7 @@
  * for their precious technical help!
  */
 
+#include <cstddef>
 #include <stdint.h>
 #include <string.h>
 
@@ -63,6 +64,79 @@ struct ATRAC3PContext {
 
     int block_align;
 };
+
+int atrac3p_snapshot_size(const ATRAC3PContext *ctx) {
+    return (int)(sizeof(ATRAC3PContext) + ctx->num_channel_blocks * sizeof(Atrac3pChanUnitCtx));
+}
+
+// Each history pointer points at one of two slots in its own unit; the snapshot stores which (0 or 1).
+template <typename T>
+static T *slot_index(T *p, T *slot0) {
+    return (T *)(uintptr_t)(p == slot0 ? 0 : 1);
+}
+template <typename T>
+static T *slot_from_index(T *p, T *slot0, T *slot1) {
+    return (uintptr_t)p == 0 ? slot0 : slot1;
+}
+
+void atrac3p_snapshot_save(const ATRAC3PContext *ctx, uint8_t *out) {
+    memcpy(out, ctx, sizeof(ATRAC3PContext));
+    // Load ignores the context's pointers and setup; zero them (see atrac3_snapshot_save).
+    memset(out + offsetof(ATRAC3PContext, gb), 0, sizeof(ctx->gb));
+    memset(out + offsetof(ATRAC3PContext, gainc_ctx), 0, sizeof(ctx->gainc_ctx));
+    memset(out + offsetof(ATRAC3PContext, mdct_ctx), 0, sizeof(ctx->mdct_ctx));
+    memset(out + offsetof(ATRAC3PContext, ipqf_dct_ctx), 0, sizeof(ctx->ipqf_dct_ctx));
+    memset(out + offsetof(ATRAC3PContext, ch_units), 0, sizeof(ctx->ch_units));
+    Atrac3pChanUnitCtx *units = (Atrac3pChanUnitCtx *)(out + sizeof(ATRAC3PContext));
+    memcpy(units, ctx->ch_units, ctx->num_channel_blocks * sizeof(Atrac3pChanUnitCtx));
+    for (int i = 0; i < ctx->num_channel_blocks; i++) {
+        Atrac3pChanUnitCtx &u = units[i];
+        const Atrac3pChanUnitCtx &live = ctx->ch_units[i];
+        for (int ch = 0; ch < 2; ch++) {
+            Atrac3pChanParams &c = u.channels[ch];
+            const Atrac3pChanParams &lc = live.channels[ch];
+            c.wnd_shape = slot_index(lc.wnd_shape, (uint8_t *)&lc.wnd_shape_hist[0][0]);
+            c.wnd_shape_prev = slot_index(lc.wnd_shape_prev, (uint8_t *)&lc.wnd_shape_hist[0][0]);
+            c.gain_data = slot_index(lc.gain_data, (AtracGainInfo *)&lc.gain_data_hist[0][0]);
+            c.gain_data_prev = slot_index(lc.gain_data_prev, (AtracGainInfo *)&lc.gain_data_hist[0][0]);
+            c.tones_info = slot_index(lc.tones_info, (Atrac3pWavesData *)&lc.tones_info_hist[0][0]);
+            c.tones_info_prev = slot_index(lc.tones_info_prev, (Atrac3pWavesData *)&lc.tones_info_hist[0][0]);
+        }
+        u.waves_info = slot_index(live.waves_info, (Atrac3pWaveSynthParams *)&live.wave_synth_hist[0]);
+        u.waves_info_prev = slot_index(live.waves_info_prev, (Atrac3pWaveSynthParams *)&live.wave_synth_hist[0]);
+    }
+}
+
+bool atrac3p_snapshot_load(ATRAC3PContext *ctx, const uint8_t *in, int size) {
+    if (size != atrac3p_snapshot_size(ctx))
+        return false;
+    const ATRAC3PContext *saved = (const ATRAC3PContext *)in;
+    if (saved->num_channel_blocks != ctx->num_channel_blocks || saved->block_align != ctx->block_align ||
+        memcmp(saved->channel_blocks, ctx->channel_blocks, sizeof(ctx->channel_blocks)) != 0)
+        return false;
+    memcpy(ctx->samples, saved->samples, sizeof(ctx->samples));
+    memcpy(ctx->mdct_buf, saved->mdct_buf, sizeof(ctx->mdct_buf));
+    memcpy(ctx->time_buf, saved->time_buf, sizeof(ctx->time_buf));
+    memcpy(ctx->outp_buf, saved->outp_buf, sizeof(ctx->outp_buf));
+
+    const Atrac3pChanUnitCtx *units = (const Atrac3pChanUnitCtx *)(in + sizeof(ATRAC3PContext));
+    for (int i = 0; i < ctx->num_channel_blocks; i++) {
+        Atrac3pChanUnitCtx &u = ctx->ch_units[i];
+        memcpy(&u, &units[i], sizeof(Atrac3pChanUnitCtx));
+        for (int ch = 0; ch < 2; ch++) {
+            Atrac3pChanParams &c = u.channels[ch];
+            c.wnd_shape = slot_from_index(c.wnd_shape, &c.wnd_shape_hist[0][0], &c.wnd_shape_hist[1][0]);
+            c.wnd_shape_prev = slot_from_index(c.wnd_shape_prev, &c.wnd_shape_hist[0][0], &c.wnd_shape_hist[1][0]);
+            c.gain_data = slot_from_index(c.gain_data, &c.gain_data_hist[0][0], &c.gain_data_hist[1][0]);
+            c.gain_data_prev = slot_from_index(c.gain_data_prev, &c.gain_data_hist[0][0], &c.gain_data_hist[1][0]);
+            c.tones_info = slot_from_index(c.tones_info, &c.tones_info_hist[0][0], &c.tones_info_hist[1][0]);
+            c.tones_info_prev = slot_from_index(c.tones_info_prev, &c.tones_info_hist[0][0], &c.tones_info_hist[1][0]);
+        }
+        u.waves_info = slot_from_index(u.waves_info, &u.wave_synth_hist[0], &u.wave_synth_hist[1]);
+        u.waves_info_prev = slot_from_index(u.waves_info_prev, &u.wave_synth_hist[0], &u.wave_synth_hist[1]);
+    }
+    return true;
+}
 
 void atrac3p_free(ATRAC3PContext *ctx)
 {

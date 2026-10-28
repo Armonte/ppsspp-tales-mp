@@ -1,7 +1,23 @@
 
+#ifdef _WIN32
+// SDL frontend on Windows (rollback fork): keep windows.h from defining min/max macros.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
 #include <cstdlib>
+#ifndef _WIN32
 #include <unistd.h>
 #include <pwd.h>
+#else
+#include <io.h>
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+#ifndef F_OK
+#define F_OK 0
+#endif
+#endif
 
 #include "ppsspp_config.h"
 #include <SDL3/SDL.h>
@@ -962,7 +978,7 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 #if PPSSPP_PLATFORM(WINDOWS)
 		SFGAOF flags;
 		PIDLIST_ABSOLUTE pidl = nullptr;
-		HRESULT hr = SHParseDisplayName(ConvertUTF8ToWString(ReplaceAll(path, "/", "\\")).c_str(), nullptr, &pidl, 0, &flags);
+		HRESULT hr = SHParseDisplayName(ConvertUTF8ToWString(ReplaceAll(param1, "/", "\\")).c_str(), nullptr, &pidl, 0, &flags);
 		if (pidl) {
 			if (SUCCEEDED(hr))
 				SHOpenFolderAndSelectItems(pidl, 0, NULL, 0);
@@ -2016,7 +2032,7 @@ int main(int argc, char *argv[]) {
 #ifdef HAVE_LIBNX
 	socketInitializeDefault();
 	nxlinkStdio();
-#else // HAVE_LIBNX
+#elif !defined(_WIN32) // HAVE_LIBNX
 	// Ignore sigpipe.
 	if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
 		perror("Unable to ignore SIGPIPE");
@@ -2179,6 +2195,10 @@ int main(int argc, char *argv[]) {
 	char path[2048] = {};
 #if PPSSPP_PLATFORM(SWITCH)
 	strcpy(path, "/switch/ppsspp/");
+#elif defined(_WIN32)
+	// Rollback fork, SDL frontend on Windows: portable layout next to the executable, like PPSSPPWindows.
+	if (const char *base = SDL_GetBasePath())
+		snprintf(path, sizeof(path), "%s", base);
 #else
 	const char *the_path = getenv("HOME");
 	if (!the_path) {

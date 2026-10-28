@@ -14,6 +14,8 @@
 //
 // NOTE: In MSVC, don't forget to set the working directory to $ProjectDir\.. in debug settings.
 
+#include <map>
+#include <memory>
 #include "ppsspp_config.h"
 #include <cstdio>
 #include <cstdlib>
@@ -78,6 +80,14 @@
 #include "Common/Log/LogManager.h"
 
 #include "Compare.h"
+#include "Core/Rollback/Lockdown.h"
+#include "Core/Rollback/NetplaySession.h"
+#include "Core/Rollback/Profile.h"
+#include "Core/Rollback/TekkenDR.h"
+#include "headless/SampleProfiler.h"
+#include "Core/HLE/sceCtrl.h"
+#include "Core/HLE/sceDisplay.h"
+#include "Core/HW/Display.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
 #elif defined(SDL)
@@ -375,7 +385,7 @@ void SendDebugScreenshot(const DebugScreenshotDesc &desc) {
 }
 
 static GraphicsContext *CreateGraphicsContext(GPUCore gpuCore, std::string **deviceSetting) {
-#ifdef SDL
+#if defined(SDL) && !defined(_WIN32)
 	*deviceSetting = nullptr;
 	switch (gpuCore) {
 	case GPUCORE_GLES:
@@ -435,6 +445,18 @@ struct AutoTestOptions {
 	bool frameStats;
 	// Keep emulated time from running ahead of the wall clock (--realtime).
 	bool realtime;
+	// --rollback-stress: check distance (0 = off), fuzzed input, frames to run before starting.
+	int rollbackStress;
+	bool rollbackFuzz;
+	int rollbackStart;
+	std::string rollbackDiag;
+	bool rollbackFullStates;
+	bool rollbackHashPages;
+	bool rollbackValidatePages;
+	std::string rollbackReplay;
+	std::string rollbackReplayShots;
+	std::string rollbackReplayLog;
+	int sampleProfile;
 	// What --disable-hle asked for, or 0 if it was not passed. Only an explicit request binds:
 	// sceMpeg and sceMp4 run the firmware module by default now and fall back to the HLE wherever
 	// none is installed, which must not fail every run on such a machine.
@@ -500,6 +522,116 @@ static void EndDrawFrame(Draw::DrawContext *draw) {
 	}
 }
 
+// --rollback-replay: a .budarec recording. Header 0x400 bytes (frame count at 0x1B0), then 28 bytes per
+// frame: u32 frame, u32 0, then player 1 and player 2 as u16 libretro joypad masks (the rest unused). Its core ends a frame
+// when the game finishes one (it doesn't duplicate frames), so a recorded frame is one game frame here: its input
+// holds until the game finishes a frame, however many vblanks that takes.
+struct ReplayPlayer {
+	std::vector<uint16_t> inputs[2];
+	size_t index = 0;
+	int vblankFrames = 0;
+	// Game frames that took N vblanks, and how many vblanks the current one has taken.
+	int vblanksThisGameFrame = 0;
+	std::map<int, int> gameFrameLengths;
+	// Runs of game frames taking 2+ vblanks each (slow-motion, 30 fps scenes), as recorded-frame ranges.
+	struct SlowRun { size_t start, end; int vblanks; };
+	std::vector<SlowRun> slowRuns;
+	size_t slowStart = SIZE_MAX;
+	int slowVblanks = 0;
+	FILE *log = nullptr;
+	Path shotDir;
+
+	bool Load(const Path &path) {
+		std::string data;
+		if (!File::ReadBinaryFileToString(path, &data) || data.size() < 0x400)
+			return false;
+		uint32_t count;
+		memcpy(&count, data.data() + 0x1B0, 4);
+		if (data.size() < 0x400 + (size_t)count * 28)
+			return false;
+		for (uint32_t i = 0; i < count; i++) {
+			uint16_t p[2];
+			memcpy(p, data.data() + 0x400 + i * 28 + 8, 4);
+			inputs[0].push_back(p[0]);
+			inputs[1].push_back(p[1]);
+		}
+		return true;
+	}
+	bool Done() const { return index >= inputs[0].size(); }
+
+	static uint32_t ToCtrl(uint16_t mask) {
+		static const struct { uint16_t retro; uint32_t ctrl; } map[] = {
+			{ 0x0001, CTRL_CROSS }, { 0x0002, CTRL_SQUARE }, { 0x0004, CTRL_SELECT }, { 0x0008, CTRL_START },
+			{ 0x0010, CTRL_UP }, { 0x0020, CTRL_DOWN }, { 0x0040, CTRL_LEFT }, { 0x0080, CTRL_RIGHT },
+			{ 0x0100, CTRL_CIRCLE }, { 0x0200, CTRL_TRIANGLE }, { 0x0400, CTRL_LTRIGGER }, { 0x0800, CTRL_RTRIGGER },
+		};
+		uint32_t ctrl = 0;
+		for (const auto &m : map) {
+			if (mask & m.retro)
+				ctrl |= m.ctrl;
+		}
+		return ctrl;
+	}
+	uint32_t Buttons(int player) const { return ToCtrl(inputs[player][index]); }
+
+	// After each frame (one vblank under the lockdown).
+	void FrameDone(bool endedGameFrame, int vblanks) {
+		vblankFrames++;
+		vblanksThisGameFrame += vblanks;
+		if (log)
+			fprintf(log, "%d,%zu,%d,%d\n", vblankFrames, index, endedGameFrame ? 1 : 0, vblanks);
+		if (!endedGameFrame)
+			return;
+		const int length = vblanksThisGameFrame;
+		vblanksThisGameFrame = 0;
+		gameFrameLengths[length]++;
+		if (length >= 2) {
+			if (slowStart == SIZE_MAX) {
+				slowStart = index;
+				slowVblanks = 0;
+				SaveShot("slow");
+			}
+			slowVblanks += length;
+			if (index - slowStart == 60)
+				SaveShot("slowmid");
+		} else {
+			EndSlowRun();
+		}
+		if (index % 600 == 0)
+			SaveShot("replay");
+		index++;
+	}
+	void SaveShot(const char *prefix) {
+		if (shotDir.empty())
+			return;
+		SetScreenshotSavePath(shotDir / StringFromFormat("%s_%06zu.png", prefix, index));
+		SendDebugScreenshot(DebugScreenshotDesc{});
+		SetScreenshotSavePath(Path());
+	}
+	void EndSlowRun() {
+		// Only runs long enough to see (a quarter second of game frames).
+		if (slowStart != SIZE_MAX && index - slowStart >= 15)
+			slowRuns.push_back({ slowStart, index, slowVblanks });
+		slowStart = SIZE_MAX;
+	}
+	void Report() {
+		EndSlowRun();
+		std::string lengths;
+		for (const auto &it : gameFrameLengths)
+			lengths += StringFromFormat(" %d:%d", it.first, it.second);
+		fprintf(stderr, "Replay: %zu of %zu recorded frames in %d vblanks; game frames by vblanks taken:%s\n",
+			index, inputs[0].size(), vblankFrames, lengths.c_str());
+		for (const SlowRun &r : slowRuns) {
+			const size_t frames = r.end - r.start;
+			fprintf(stderr, "Replay: recorded frames %zu-%zu (%.1fs recorded): %d vblanks (%.1fs real, %.2f per game frame)\n",
+				r.start, r.end, frames / 59.94, r.vblanks, r.vblanks / 59.94, (double)r.vblanks / frames);
+		}
+		if (log)
+			fclose(log);
+		log = nullptr;
+	}
+};
+
 static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &coreParameter, const AutoTestOptions &opt) {
 	using namespace Draw;
 
@@ -513,6 +645,29 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 	std::string output;
 	if (opt.compare || opt.bench) {
 		coreParameter.collectDebugOutput = &output;
+	}
+
+	// A rollback session runs under the determinism lockdown, and some of it (the SAS thread, for one) only
+	// takes effect when the game boots, so enter it before booting. A replay runs under it too, one vblank per frame.
+	if (opt.rollbackStress > 0 || !opt.rollbackReplay.empty())
+		Rollback::EnterLockdown();
+
+	std::unique_ptr<ReplayPlayer> replay;
+	if (!opt.rollbackReplay.empty()) {
+		replay = std::make_unique<ReplayPlayer>();
+		if (!replay->Load(Path(opt.rollbackReplay))) {
+			fprintf(stderr, "Replay: couldn't read %s\n", opt.rollbackReplay.c_str());
+			return false;
+		}
+		if (!opt.rollbackReplayLog.empty()) {
+			replay->log = File::OpenCFile(Path(opt.rollbackReplayLog), "w");
+			if (replay->log)
+				fprintf(replay->log, "vblank_frame,recorded_frame,game_frame_ended,vblanks\n");
+		}
+		if (!opt.rollbackReplayShots.empty()) {
+			replay->shotDir = Path(opt.rollbackReplayShots);
+			File::CreateFullPath(replay->shotDir);
+		}
 	}
 
 	if (!PSP_InitStart(coreParameter)) {
@@ -599,6 +754,9 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 	double statsStart = -1.0;
 	int statsLastFlips = 0;
 	std::vector<std::pair<double, Path>> screenshotsAt = opt.screenshotsAt;
+	// --rollback-stress: completed frames so far, to know when to start the session.
+	int completedFrames = 0;
+	bool sampling = false;
 	coreState = coreParameter.startBreak ? CORE_STEPPING_CPU : CORE_RUNNING_CPU;
 
 	// The XMB starting a game, or a game going back to it: boot that, the way the app does, and keep
@@ -695,21 +853,79 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			}
 		}
 
-		// Finer steps when input is scripted, so short presses land.
-		int blockTicks = (int)usToCycles(1000000 / (opt.presses.empty() ? 10 : 60));
-		if (opt.realtime) {
-			// Display flips are the only thing that paces headless otherwise, and a test that doesn't
-			// draw never flips, so the emulated clock would race ahead of instances it talks to.
-			blockTicks = (int)usToCycles(1000);
-			const double ahead = emulatedElapsed - (time_now_d() - startTime);
-			if (ahead > 0.001) {
-				sleep_ms((int)(std::min(ahead, 0.05) * 1000.0), "realtime");
+		if (opt.rollbackStress > 0 && !Rollback::IsSessionActive() && completedFrames == opt.rollbackStart && !g_stateLoadPending) {
+			Rollback::SessionConfig rollbackConfig;
+			rollbackConfig.role = Rollback::Role::StressTest;
+			rollbackConfig.checkDistance = opt.rollbackStress;
+			rollbackConfig.fuzzInput = opt.rollbackFuzz;
+			rollbackConfig.diagDumpDir = opt.rollbackDiag;
+			rollbackConfig.fullStates = opt.rollbackFullStates;
+			rollbackConfig.trackWrites = !opt.rollbackHashPages;
+			rollbackConfig.validatePages = opt.rollbackValidatePages;
+			rollbackConfig.scriptedInput = replay != nullptr;
+			if (!Rollback::StartSession(rollbackConfig)) {
+				fprintf(stderr, "Rollback stress: could not start the session\n");
+				passed = false;
+				Core_Stop();
+				break;
 			}
+			fprintf(stderr, "Rollback stress: started at frame %d, check distance %d, fuzz %s\n", completedFrames, opt.rollbackStress, opt.rollbackFuzz ? "on" : "off");
 		}
-		PSP_RunLoopFor(blockTicks);
+
+		// --sample-profile: profile the rollback session, or everything after the state load.
+		if (opt.sampleProfile > 0 && !sampling && !g_stateLoadPending && (opt.rollbackStress == 0 || Rollback::IsSessionActive()))
+			sampling = SampleProfiler::Start();
+
+		// --rollback-replay: from the loaded state on, each frame plays the recorded frame the game is on.
+		const bool replaying = replay && !g_stateLoadPending && !replay->Done();
+		int gameFramesBefore = 0, vcountBefore = 0;
+		if (replaying) {
+			if (Rollback::IsSessionActive()) {
+				Rollback::SetScriptedInput(replay->Buttons(0), replay->Buttons(1));
+			} else {
+				const u8 centered[2][2] = { { 128, 128 }, { 128, 128 } };
+				__CtrlSetNetplayInput(true, replay->Buttons(0), centered);
+				if (Rollback::IsTekkenDR())
+					Rollback::TekkenDRApplyPlayer2(replay->Buttons(1), 128, 128);
+			}
+			gameFramesBefore = __DisplayGetGameFrames();
+			vcountBefore = __DisplayGetVCount();
+		}
+
+		if (Rollback::IsSessionActive()) {
+			Rollback::RunSessionFrame();
+		} else {
+			// Finer steps when input is scripted, so short presses land.
+			int blockTicks = (int)usToCycles(1000000 / (opt.presses.empty() ? 10 : 60));
+			if (opt.realtime) {
+				// Display flips are the only thing that paces headless otherwise, and a test that doesn't
+				// draw never flips, so the emulated clock would race ahead of instances it talks to.
+				blockTicks = (int)usToCycles(1000);
+				const double ahead = emulatedElapsed - (time_now_d() - startTime);
+				if (ahead > 0.001) {
+					sleep_ms((int)(std::min(ahead, 0.05) * 1000.0), "realtime");
+				}
+			}
+			PSP_RunLoopFor(blockTicks);
+		}
+
+		if (replaying && coreState == CORE_NEXTFRAME) {
+			if (Rollback::IsSessionActive()) {
+				const Rollback::SessionStats rb = Rollback::GetSessionStats();
+				replay->FrameDone(rb.lastFrameEndedGameFrame, rb.lastFrameVblanks);
+			} else {
+				replay->FrameDone(__DisplayGetGameFrames() != gameFramesBefore, __DisplayGetVCount() - vcountBefore);
+			}
+			if (replay->Done())
+				Core_Stop();
+		}
 
 		// If we were rendering, this might be a nice time to do something about it.
 		if (coreState == CORE_NEXTFRAME) {
+			// --rollback-start counts from when the --state lands, like emulatedElapsed: the boot now completes frames
+			// before a slow state load finishes, and counting those meant --rollback-start=0 never matched.
+			if (!g_stateLoadPending)
+				completedFrames++;
 			// INFO_LOG(Log::System, "(frame)");
 			coreState = CORE_RUNNING_CPU;
 			// Close and reopen the frame, which is what the app does once per displayed frame.
@@ -791,6 +1007,34 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 	}
 	if (gpu) {
 		gpu->EndHostFrame();
+	}
+
+	if (sampling)
+		fprintf(stderr, "%s", SampleProfiler::StopAndReport(opt.sampleProfile).c_str());
+	if (replay) {
+		replay->Report();
+		if (!Rollback::IsSessionActive())
+			__CtrlSetNetplayInput(false, 0, nullptr);
+	}
+	if (opt.rollbackStress > 0) {
+		const Rollback::SessionStats rb = Rollback::GetSessionStats();
+		Rollback::StopSession();
+		fprintf(stderr, "Rollback stress: %s frames=%d rollbackFrames=%lld state=%u bytes (peak %zu) save=%.2fms load=%.2fms saveFail=%d loadFail=%d",
+			rb.desyncFrame >= 0 ? "DESYNC" : "clean", rb.frame, (long long)rb.rollbackFrames, rb.stateSize, rb.stateHighWatermark,
+			rb.avgSaveMs, rb.avgLoadMs, rb.saveFailures, rb.loadFailures);
+		if (rb.desyncFrame >= 0)
+			fprintf(stderr, " desyncFrame=%d (%08x vs %08x)", rb.desyncFrame, rb.desyncLocal, rb.desyncRemote);
+		fprintf(stderr, " vblanksPerFrame=%d..%d", rb.minVblanksPerFrame, rb.maxVblanksPerFrame);
+		if (!opt.rollbackFullStates)
+			fprintf(stderr, " pages(%s): lastSave=%zu lastLoad=%zu versions=%zu faults=%llu hot=%zu missed=%llu", rb.trackingWrites ? "faults" : "hashing",
+				rb.lastSavedPages, rb.lastLoadedPages, rb.storedPageVersions, (unsigned long long)rb.pageFaults, rb.hotPages, (unsigned long long)rb.missedPages);
+		if (rb.diagMismatchFrame >= 0)
+			fprintf(stderr, " diagMismatchFrame=%d firstDiff=+%zu", rb.diagMismatchFrame, rb.diagFirstDiff);
+		fprintf(stderr, "\nRollback profile: %s\nRollback kernel load breakdown:%s\n", rb.profile.c_str(), Rollback::ProfileNamedSummary(rb.loads).c_str());
+		if (rb.missedPages)
+			passed = false;
+		if (rb.desyncFrame >= 0 || rb.saveFailures || rb.loadFailures || rb.frame == 0)
+			passed = false;
 	}
 
 	if (opt.frameStats) {
@@ -1072,6 +1316,17 @@ int main(int argc, const char* argv[]) {
 			}
 		}
 	}
+	testOptions.rollbackStress = cmdLineOptions.rollbackStress.value_or(0);
+	testOptions.rollbackFuzz = cmdLineOptions.rollbackFuzz.value_or(false);
+	testOptions.rollbackStart = cmdLineOptions.rollbackStart.value_or(300);
+	testOptions.rollbackDiag = cmdLineOptions.rollbackDiag.value_or("");
+	testOptions.rollbackFullStates = cmdLineOptions.rollbackFullStates.value_or(false);
+	testOptions.rollbackHashPages = cmdLineOptions.rollbackHashPages.value_or(false);
+	testOptions.rollbackValidatePages = cmdLineOptions.rollbackValidatePages.value_or(false);
+	testOptions.rollbackReplay = cmdLineOptions.rollbackReplay.value_or("");
+	testOptions.rollbackReplayShots = cmdLineOptions.rollbackReplayShots.value_or("");
+	testOptions.rollbackReplayLog = cmdLineOptions.rollbackReplayLog.value_or("");
+	testOptions.sampleProfile = cmdLineOptions.sampleProfile.value_or(0);
 	testOptions.maxScreenshotError = cmdLineOptions.maxScreenshotError.value_or(0.0);
 	testOptions.requiredDisableHLE = cmdLineOptions.disableHLE.value_or(0);
 	testOptions.debugger = cmdLineOptions.DebuggerPort().has_value();
