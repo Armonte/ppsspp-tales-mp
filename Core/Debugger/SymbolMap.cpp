@@ -1253,7 +1253,6 @@ void SymbolMap::AddLabel(const char* name, u32 address, int moduleIndex, bool up
 }
 
 bool SymbolMap::RemoveLabel(u32 address) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 
 	auto active = activeLabels.find(address);
 	if (active == activeLabels.end()) {
@@ -1276,22 +1275,18 @@ bool SymbolMap::RemoveLabel(u32 address) {
 }
 
 void SymbolMap::MarkLabelAsUser(u32 address) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	userLabelAddrs_.insert(address);
 }
 
 void SymbolMap::UnmarkLabelAsUser(u32 address) {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	userLabelAddrs_.erase(address);
 }
 
 bool SymbolMap::IsUserLabel(u32 address) const {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	return userLabelAddrs_.find(address) != userLabelAddrs_.end();
 }
 
 void SymbolMap::GetUserLabels(std::vector<SymbolEntry> &dest) const {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	dest.clear();
 	dest.reserve(userLabelAddrs_.size());
 	for (u32 addr : userLabelAddrs_) {
@@ -1307,7 +1302,6 @@ void SymbolMap::GetUserLabels(std::vector<SymbolEntry> &dest) const {
 }
 
 void SymbolMap::ClearUserLabels() {
-	std::lock_guard<std::recursive_mutex> guard(lock_);
 	// Take a snapshot first because RemoveLabel mutates userLabelAddrs_.
 	std::vector<u32> addrs(userLabelAddrs_.begin(), userLabelAddrs_.end());
 	for (u32 addr : addrs) {

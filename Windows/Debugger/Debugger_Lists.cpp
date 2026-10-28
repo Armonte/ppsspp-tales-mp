@@ -24,6 +24,8 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <utility>
+#include <vector>
 
 enum { TL_NAME, TL_PROGRAMCOUNTER, TL_ENTRYPOINT, TL_PRIORITY, TL_STATE, TL_WAITTYPE, TL_COLUMNCOUNT };
 enum { BPL_ENABLED, BPL_TYPE, BPL_OFFSET, BPL_SIZELABEL, BPL_OPCODE, BPL_CONDITION, BPL_HITS, BPL_COLUMNCOUNT };
@@ -1323,7 +1325,7 @@ CtrlUserSymbolList::CtrlUserSymbolList(HWND hwnd, DebugInterface *cpu)
 void CtrlUserSymbolList::Refresh() {
 	symbols_.clear();
 	if (g_symbolMap) {
-		g_symbolMap->GetUserLabels(symbols_);
+		Core_RunOnCPUThread([&] { g_symbolMap->GetUserLabels(symbols_); });
 		std::sort(symbols_.begin(), symbols_.end(),
 			[](const SymbolEntry &a, const SymbolEntry &b) { return a.address < b.address; });
 	}
@@ -1415,15 +1417,18 @@ void CtrlUserSymbolList::Edit(int pos) {
 			L"Edit Symbol", MB_OK | MB_ICONWARNING);
 		return;
 	}
-	g_symbolMap->SetLabelName(newName.c_str(), addr);
-	g_symbolMap->MarkLabelAsUser(addr);
+	Core_RunOnCPUThread([&] {
+		g_symbolMap->SetLabelName(newName.c_str(), addr);
+		g_symbolMap->MarkLabelAsUser(addr);
+	});
 	Refresh();
 	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
 }
 
 void CtrlUserSymbolList::Delete(int pos) {
 	if (pos < 0 || pos >= (int)symbols_.size()) return;
-	g_symbolMap->RemoveLabel(symbols_[pos].address);
+	const u32 addr = symbols_[pos].address;
+	Core_RunOnCPUThread([&] { g_symbolMap->RemoveLabel(addr); });
 	Refresh();
 	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
 }
@@ -1459,9 +1464,11 @@ void CtrlUserSymbolList::AddNew() {
 			L"Add Symbol", MB_OK | MB_ICONWARNING);
 		return;
 	}
-	g_symbolMap->AddLabel(name.c_str(), addr);
-	g_symbolMap->SetLabelName(name.c_str(), addr);
-	g_symbolMap->MarkLabelAsUser(addr);
+	Core_RunOnCPUThread([&] {
+		g_symbolMap->AddLabel(name.c_str(), addr);
+		g_symbolMap->SetLabelName(name.c_str(), addr);
+		g_symbolMap->MarkLabelAsUser(addr);
+	});
 	Refresh();
 	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
 }
@@ -1494,10 +1501,7 @@ void CtrlUserSymbolList::Import() {
 		return;
 	}
 
-	if (mode == IDYES) {
-		g_symbolMap->ClearUserLabels();
-	}
-
+	std::vector<std::pair<u32, std::string>> parsed;
 	int loaded = 0;
 	int rejected = 0;
 	std::string line;
@@ -1532,11 +1536,19 @@ void CtrlUserSymbolList::Import() {
 			rejected++;
 			continue;
 		}
-		g_symbolMap->AddLabel(name.c_str(), addr);
-		g_symbolMap->SetLabelName(name.c_str(), addr);
-		g_symbolMap->MarkLabelAsUser(addr);
+		parsed.emplace_back(addr, std::move(name));
 		loaded++;
 	}
+
+	Core_RunOnCPUThread([&] {
+		if (mode == IDYES)
+			g_symbolMap->ClearUserLabels();
+		for (const auto &[addr, name] : parsed) {
+			g_symbolMap->AddLabel(name.c_str(), addr);
+			g_symbolMap->SetLabelName(name.c_str(), addr);
+			g_symbolMap->MarkLabelAsUser(addr);
+		}
+	});
 
 	Refresh();
 	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
@@ -1580,7 +1592,7 @@ void CtrlUserSymbolList::ClearAll() {
 			MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
 		return;
 	}
-	g_symbolMap->ClearUserLabels();
+	Core_RunOnCPUThread([&] { g_symbolMap->ClearUserLabels(); });
 	Refresh();
 	SendMessage(GetParent(GetHandle()), WM_DEB_MAPLOADED, 0, 0);
 }

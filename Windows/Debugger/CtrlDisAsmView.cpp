@@ -1159,16 +1159,20 @@ void CtrlDisAsmView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 						L"Add Symbol", MB_OK | MB_ICONWARNING);
 					break;
 				}
-				g_symbolMap->AddLabel(newName.c_str(), curAddress);
-				g_symbolMap->SetLabelName(newName.c_str(), curAddress);  // ensure rename if existed
-				g_symbolMap->MarkLabelAsUser(curAddress);
+				Core_RunOnCPUThread([&] {
+					g_symbolMap->AddLabel(newName.c_str(), curAddress);
+					g_symbolMap->SetLabelName(newName.c_str(), curAddress);  // ensure rename if existed
+					g_symbolMap->MarkLabelAsUser(curAddress);
+				});
 				SendMessage(GetParent(wnd), WM_DEB_MAPLOADED, 0, 0);
 				redraw();
 			}
 			break;
 		case ID_DISASM_REMOVESYMBOL:
 			{
-				if (!g_symbolMap->RemoveLabel(curAddress)) {
+				bool removed = false;
+				Core_RunOnCPUThread([&] { removed = g_symbolMap->RemoveLabel(curAddress); });
+				if (!removed) {
 					MessageBox(wnd, L"No symbol at this address.", L"Remove Symbol", MB_OK | MB_ICONWARNING);
 					break;
 				}
