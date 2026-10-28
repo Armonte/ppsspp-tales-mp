@@ -885,7 +885,10 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 
 		// If we were rendering, this might be a nice time to do something about it.
 		if (coreState == CORE_NEXTFRAME) {
-			completedFrames++;
+			// --rollback-start counts from when the --state lands, like emulatedElapsed: the boot now completes frames
+			// before a slow state load finishes, and counting those meant --rollback-start=0 never matched.
+			if (!g_stateLoadPending)
+				completedFrames++;
 			// INFO_LOG(Log::System, "(frame)");
 			coreState = CORE_RUNNING_CPU;
 			// Close and reopen the frame, which is what the app does once per displayed frame.
