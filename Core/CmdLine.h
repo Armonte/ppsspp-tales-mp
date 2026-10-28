@@ -209,6 +209,10 @@ struct CommandLineOptions {
 	std::optional<std::string> dumpAudioFilename;
 	std::optional<std::string> pressScript;
 	std::optional<std::string> screenshotAt;
+	// Tales MP test tooling (headless).
+	std::optional<bool> mash;
+	std::optional<std::string> holdButtons;
+	std::optional<std::string> saveStateOnExit;
 	std::optional<int> replayEnd;
 	// Headless: apply the game's compatibility settings when replaying a GE frame dump.
 	std::optional<bool> dumpCompat;

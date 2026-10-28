@@ -449,7 +449,44 @@ struct AutoTestOptions {
 	};
 	std::vector<Press> presses;
 	std::vector<std::pair<double, Path>> screenshotsAt;
+	// Tales MP test tooling: --mash, --hold, --save-state-on-exit.
+	bool mashInput;
+	u32 holdButtons;
+	std::string saveStateOnExit;
 };
+
+// Parse a comma-separated list of PSP button names (--hold) into a bitmask.
+static u32 ParseButtonList(const std::string &list) {
+	static const struct { const char *name; u32 bit; } names[] = {
+		{ "cross", CTRL_CROSS }, { "x", CTRL_CROSS },
+		{ "circle", CTRL_CIRCLE }, { "o", CTRL_CIRCLE },
+		{ "square", CTRL_SQUARE }, { "[]", CTRL_SQUARE },
+		{ "triangle", CTRL_TRIANGLE }, { "tri", CTRL_TRIANGLE },
+		{ "start", CTRL_START },
+		{ "select", CTRL_SELECT },
+		{ "l", CTRL_LTRIGGER }, { "lt", CTRL_LTRIGGER },
+		{ "r", CTRL_RTRIGGER }, { "rt", CTRL_RTRIGGER },
+		{ "up", CTRL_UP },
+		{ "down", CTRL_DOWN },
+		{ "left", CTRL_LEFT },
+		{ "right", CTRL_RIGHT },
+	};
+	u32 mask = 0;
+	std::vector<std::string> items;
+	SplitString(list, ',', items);
+	for (std::string item : items) {
+		for (char &c : item) {
+			c = (char)tolower((unsigned char)c);
+		}
+		for (const auto &e : names) {
+			if (item == e.name) {
+				mask |= e.bit;
+				break;
+			}
+		}
+	}
+	return mask;
+}
 
 // Ends a frame of the draw context the way the app does, presenting it. Unpresented frames never
 // finish: with Vulkan, presenting is what returns a frame's image, and OpenGL's render thread only
@@ -695,6 +732,31 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			if (gpu) {
 				gpu->BeginHostFrame(g_Config.GetDisplayLayoutConfig(DeviceOrientation::Landscape));
 			}
+
+			// --hold: a fixed button set, every frame.
+			if (opt.holdButtons) {
+				__CtrlUpdateButtons(opt.holdButtons, ~opt.holdButtons);
+			}
+			// --mash: the Tales title screen checks buttons for exact equality (== CIRCLE), so each
+			// button is pressed alone with a release between presses: CIRCLE, CROSS, START, DOWN (so
+			// menus advance even if the cursor lands wrong), at about 10 Hz per button.
+			if (opt.mashInput) {
+				static int mashFrame = 0;
+				const u32 allMashButtons = CTRL_CROSS | CTRL_CIRCLE | CTRL_START | CTRL_DOWN;
+				u32 want = 0;
+				switch ((mashFrame++ / 6) % 8) {
+				case 0: want = CTRL_CIRCLE; break;
+				case 2: want = CTRL_CROSS; break;
+				case 4: want = CTRL_START; break;
+				case 6: want = CTRL_DOWN; break;
+				default: break;  // release frames
+				}
+				__CtrlUpdateButtons(want, allMashButtons & ~want);
+				// A progression snapshot every 300 frames (5 seconds).
+				if ((mashFrame % 300) == 0) {
+					SaveScreenshotNow(Path(StringFromFormat("tests/talesmp-output/mash-snap-%04d.bmp", mashFrame / 60)));
+				}
+			}
 		}
 		// Without a debugger nothing can resume a stop, so it ends the run.
 		if (coreState == CORE_STEPPING_CPU && !opt.debugger) {
@@ -739,6 +801,23 @@ static bool RunAutoTest(GraphicsContext *graphicsContext, CoreParameter &corePar
 			perSecond += StringFromFormat(" %d", flips);
 		}
 		fprintf(stderr, "Frame stats: %d flips in %d emulated seconds, wall %.1fs, per second:%s\n", total, (int)flipsPerSecond.size(), time_now_d() - startTime, perSecond.c_str());
+	}
+
+	// --save-state-on-exit: a state of where the run ended, to resume from.
+	if (!opt.saveStateOnExit.empty()) {
+		std::vector<u8> state;
+		if (SaveState::SaveToRam(state) == CChunkFileReader::ERROR_NONE) {
+			FILE *f = File::OpenCFile(Path(opt.saveStateOnExit), "wb");
+			if (f) {
+				fwrite(state.data(), 1, state.size(), f);
+				fclose(f);
+				fprintf(stderr, "TalesMp: wrote savestate to %s (%zu bytes)\n", opt.saveStateOnExit.c_str(), state.size());
+			} else {
+				fprintf(stderr, "TalesMp: failed to open %s for save\n", opt.saveStateOnExit.c_str());
+			}
+		} else {
+			fprintf(stderr, "TalesMp: SaveToRam failed\n");
+		}
 	}
 
 	// Before EndDrawFrame: Vulkan can only read back a framebuffer inside a frame.
@@ -965,6 +1044,9 @@ int main(int argc, const char* argv[]) {
 	testOptions.verbose = cmdLineOptions.verbose.value_or(false);
 	testOptions.printEqualLines = cmdLineOptions.printEqualLines.value_or(false);
 	testOptions.frameStats = cmdLineOptions.frameStats.value_or(false);
+	testOptions.mashInput = cmdLineOptions.mash.value_or(false);
+	testOptions.holdButtons = ParseButtonList(cmdLineOptions.holdButtons.value_or(""));
+	testOptions.saveStateOnExit = cmdLineOptions.saveStateOnExit.value_or("");
 	testOptions.realtime = cmdLineOptions.realtime.value_or(false);
 	// BUTTONS is a sceCtrl mask (hex with 0x), DURATION defaults to 0.15s.
 	if (cmdLineOptions.pressScript.has_value()) {
